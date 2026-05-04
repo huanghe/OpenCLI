@@ -9113,6 +9113,102 @@
   },
   {
     "site": "jd",
+    "name": "ebook-info",
+    "description": "京东读书电子书元信息（书名、作者、简介、封面、分类）— 公开页面，免登录",
+    "domain": "e.jd.com",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "ebook",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "电子书 ID（如 30906459），或包含 ebookId 的 URL"
+      }
+    ],
+    "columns": [
+      "title",
+      "author",
+      "category",
+      "intro",
+      "cover",
+      "url",
+      "ebookId"
+    ],
+    "type": "js",
+    "modulePath": "jd/ebook-info.js",
+    "sourceFile": "jd/ebook-info.js"
+  },
+  {
+    "site": "jd",
+    "name": "ebook-read",
+    "description": "京东读书电子书正文 — 通过浏览器渲染后从 DOM 抽段落（受 DRM/登录限制，仅试读可见部分）",
+    "domain": "cread.jd.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "ebook",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "电子书 ID（如 30906459），或包含 ebookId 的 URL"
+      },
+      {
+        "name": "max-paragraphs",
+        "type": "int",
+        "default": 500,
+        "required": false,
+        "help": "最多返回多少条段落 / 标题（默认 500）"
+      }
+    ],
+    "columns": [
+      "chapter",
+      "kind",
+      "content"
+    ],
+    "type": "js",
+    "modulePath": "jd/ebook-read.js",
+    "sourceFile": "jd/ebook-read.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "jd",
+    "name": "ebook-toc",
+    "description": "京东读书电子书目录（章节列表）— 通过浏览器拦截 catalog API；试读 / 免费书一般免登录可见",
+    "domain": "cread.jd.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "ebook",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "电子书 ID（如 30906459），或包含 ebookId 的 URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 200,
+        "required": false,
+        "help": "最多返回多少章节（默认 200）"
+      }
+    ],
+    "columns": [
+      "index",
+      "title",
+      "level",
+      "anchor"
+    ],
+    "type": "js",
+    "modulePath": "jd/ebook-toc.js",
+    "sourceFile": "jd/ebook-toc.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "jd",
     "name": "item",
     "description": "京东商品详情（价格、店铺、规格参数、主图、详情图）",
     "domain": "item.jd.com",
@@ -16230,6 +16326,7 @@
     "columns": [
       "id",
       "author",
+      "bio",
       "text",
       "likes",
       "retweets",
@@ -16488,6 +16585,7 @@
     "columns": [
       "id",
       "author",
+      "bio",
       "text",
       "created_at",
       "likes",
@@ -16569,6 +16667,7 @@
     "columns": [
       "id",
       "author",
+      "bio",
       "text",
       "likes",
       "retweets",
