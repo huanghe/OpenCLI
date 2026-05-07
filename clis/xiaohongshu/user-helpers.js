@@ -40,8 +40,26 @@ export function buildXhsNoteUrl(userId, noteId, xsecToken) {
     }
     return url.toString();
 }
+// 主页主人的昵称：__INITIAL_STATE__.user.userPageData.basicInfo.nickname。
+// 兼容驼峰 / 下划线 / 老字段名几种写法。
+export function extractXhsUserNickname(snapshot) {
+    const pd = snapshot?.pageData ?? {};
+    const fromPage = pd.basicInfo?.nickname
+        ?? pd.basic_info?.nickname
+        ?? pd.userInfo?.nickname
+        ?? pd.user_info?.nickname
+        ?? pd.nickname;
+    return toCleanString(fromPage);
+}
+function pickNoteAuthor(noteCard, profileNickname) {
+    const fromCard = toCleanString(noteCard?.user?.nickname
+        ?? noteCard?.user?.name
+        ?? noteCard?.user?.userName);
+    return fromCard || profileNickname || '';
+}
 export function extractXhsUserNotes(snapshot, fallbackUserId) {
     const notes = flattenXhsNoteGroups(snapshot.noteGroups);
+    const profileNickname = extractXhsUserNickname(snapshot);
     const rows = [];
     const seen = new Set();
     for (const entry of notes) {
@@ -60,6 +78,7 @@ export function extractXhsUserNotes(snapshot, fallbackUserId) {
             id: noteId,
             title: toCleanString(noteCard.displayTitle ?? noteCard.display_title ?? noteCard.title),
             type: toCleanString(noteCard.type),
+            author: pickNoteAuthor(noteCard, profileNickname),
             likes,
             cover,
             url: buildXhsNoteUrl(userId || fallbackUserId, noteId, xsecToken),

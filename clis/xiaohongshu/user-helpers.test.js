@@ -54,6 +54,7 @@ describe('extractXhsUserNotes', () => {
                 id: 'note-1',
                 title: 'First note',
                 type: 'video',
+                author: '',
                 likes: '4.6万',
                 cover: '',
                 url: 'https://www.xiaohongshu.com/user/profile/user-1/note-1?xsec_token=abc&xsec_source=pc_user',
@@ -62,11 +63,46 @@ describe('extractXhsUserNotes', () => {
                 id: 'note-2',
                 title: 'Second note',
                 type: 'normal',
+                author: '',
                 likes: '42',
                 cover: '',
                 url: 'https://www.xiaohongshu.com/user/profile/fallback-user/note-2',
             },
         ]);
+    });
+    it('returns author from noteCard.user.nickname when present', () => {
+        const rows = extractXhsUserNotes({
+            noteGroups: [[
+                    { noteCard: { noteId: 'n1', displayTitle: 't1', user: { nickname: '我不喝牛奶' } } },
+                ]],
+        }, 'fallback');
+        expect(rows[0].author).toBe('我不喝牛奶');
+    });
+    it('falls back to pageData.basicInfo.nickname when noteCard.user.nickname missing', () => {
+        const rows = extractXhsUserNotes({
+            noteGroups: [[
+                    { noteCard: { noteId: 'n1', displayTitle: 't1' } },
+                ]],
+            pageData: { basicInfo: { nickname: '我不喝牛奶' } },
+        }, 'fallback');
+        expect(rows[0].author).toBe('我不喝牛奶');
+    });
+    it('returns empty author when nickname unavailable on both sources', () => {
+        const rows = extractXhsUserNotes({
+            noteGroups: [[
+                    { noteCard: { noteId: 'n1', displayTitle: 't1' } },
+                ]],
+        }, 'fallback');
+        expect(rows[0].author).toBe('');
+    });
+    it('prefers noteCard.user.nickname over pageData when both present', () => {
+        const rows = extractXhsUserNotes({
+            noteGroups: [[
+                    { noteCard: { noteId: 'n1', displayTitle: 't1', user: { nickname: 'card-name' } } },
+                ]],
+            pageData: { basicInfo: { nickname: 'page-name' } },
+        }, 'fallback');
+        expect(rows[0].author).toBe('card-name');
     });
     it('extracts cover urls with fallback priority urlDefault -> urlPre -> url', () => {
         const rows = extractXhsUserNotes({
