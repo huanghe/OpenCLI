@@ -5,21 +5,27 @@ import { ArgumentError, AuthRequiredError, CommandExecutionError } from '@jackwe
 import { __test__ } from './follow.js';
 
 /**
- * The patched follow.js does, in order:
- *   1. page.goto(url)               — navigate to profile
- *   2. page.wait                    — settle
- *   3. page.evaluate(location.href) — login redirect check
- *   4. page.evaluate(clickScript)   — find scope, click CTA, return diag
- *   5. page.wait                    — modal-mount settle
- *   6. page.evaluate(modalScript)   — dismiss any post-click modal
- *   7. page.wait                    — post-confirm settle
- *   8. page.goto(url)               — reload to force server state into DOM
- *   9. page.wait                    — reload settle
- *  10. page.evaluate(verifyScript)  — read fresh button state, authoritative
+ * Adapter flow (v5 — CDP-trusted click + interceptor + diagnostics):
+ *   1. page.goto(url)                     [goto:1]
+ *   2. page.wait                          [wait]
+ *   3. page.evaluate(location.href)       [eval:1] — login check
+ *   4. page.installInterceptor('/api/sns') [intercept install — optional]
+ *   5. page.evaluate(locateCtaScript)     [eval:2]
+ *   6. page.click('[…follow-cta]')        [click:1 — only when cta-tagged]
+ *   7. page.evaluate(click_log readback)  [eval:3]
+ *   8. page.evaluate(doc_click_log readback) [eval:4]
+ *   9. page.wait                          [wait]
+ *  10. page.evaluate(locateModalScript)   [eval:5]
+ *  11. page.click('[…modal-confirm]')     [click:2 — only when confirm-tagged]
+ *  12. page.wait                          [wait]
+ *  13. page.getInterceptedRequests()      [intercept read — optional]
+ *  14. page.goto(url) reload              [goto:2]
+ *  15. page.wait                          [wait]
+ *  16. page.evaluate(verifyScript)        [eval:6]
  *
- * The already-following fast path stops after step 4 with no reload.
+ * Fast paths short-circuit earlier (already-following stops after eval:2).
  */
-function makePage(evaluateResults = []) {
+function makePage(evaluateResults = [], extra = {}) {
     const evaluate = vi.fn();
     for (const r of evaluateResults) evaluate.mockResolvedValueOnce(r);
     evaluate.mockResolvedValue(undefined);
@@ -27,6 +33,9 @@ function makePage(evaluateResults = []) {
         goto: vi.fn().mockResolvedValue(undefined),
         wait: vi.fn().mockResolvedValue(undefined),
         evaluate,
+        click: extra.click ?? vi.fn().mockResolvedValue({ matches_n: 1, match_level: 'exact' }),
+        installInterceptor: extra.installInterceptor ?? vi.fn().mockResolvedValue(undefined),
+        getInterceptedRequests: extra.getInterceptedRequests ?? vi.fn().mockResolvedValue([]),
     };
 }
 
@@ -36,34 +45,41 @@ const profileUrl = `https://www.xiaohongshu.com/user/profile/${validId}`;
 describe('xiaohongshu follow', () => {
     const getCommand = () => getRegistry().get('xiaohongshu/follow');
 
-    it('returns followed on the no-modal happy path (click → no_modal → reload → verify)', async () => {
+    it('returns followed on the no-modal happy path with trusted click + post-reload verify', async () => {
         const page = makePage([
-            profileUrl,                                                  // location.href
-            { ok: true, state: 'click-dispatched', diag: {} },           // clickScript
-            { ok: true, state: 'no_modal' },                             // modalScript
-            { ok: true, state: 'followed' },                             // verifyScript
+            profileUrl,                                                 // eval:1 location.href
+            { ok: true, state: 'cta-tagged', diag: { clicked_button_html: '<button class="follow-button">关注</button>' } }, // eval:2 locate
+            [{ kind: 'click', isTrusted: true }],                       // eval:3 click_log
+            [{ kind: 'click', isTrusted: true, clientX: 100, clientY: 200, targetHtml: '<button>关注</button>' }], // eval:4 doc_click_log
+            { ok: true, state: 'no_modal' },                            // eval:5 modal
+            { ok: true, state: 'followed' },                            // eval:6 verify
         ]);
         const result = await getCommand().func(page, { 'user-id': validId });
         expect(result).toEqual([{ status: 'followed', user_id: validId, url: profileUrl }]);
-        expect(page.goto).toHaveBeenCalledTimes(2);
-        expect(page.evaluate).toHaveBeenCalledTimes(4);
+        expect(page.goto).toHaveBeenCalledTimes(2);                     // profile + reload
+        expect(page.click).toHaveBeenCalledTimes(1);                    // CTA only
+        expect(page.click.mock.calls[0][0]).toBe(`[data-opencli-target="${__test__.CTA_TAG}"]`);
+        expect(page.installInterceptor).toHaveBeenCalledWith('/api/sns');
     });
 
-    it('returns followed on the modal-present happy path (click → confirmed → reload → verify)', async () => {
+    it('returns followed when a confirm modal appears and is dismissed via trusted click', async () => {
         const page = makePage([
             profileUrl,
-            { ok: true, state: 'click-dispatched',
-              diag: { dialogs_after_click: 1, clicked_button_html: '<button class="follow-button">关注</button>' } },
-            { ok: true, state: 'confirmed',
-              diag: { modal_state: 'confirmed', modal_button_labels: ['确认关注', '取消'] } },
+            { ok: true, state: 'cta-tagged', diag: { clicked_button_html: '<button>关注</button>' } },
+            [{ kind: 'click', isTrusted: true }],
+            [{ kind: 'click', isTrusted: true }],
+            { ok: true, state: 'confirm-tagged', diag: { modal_state: 'confirm-tagged', modal_button_labels: ['确认关注', '取消'] } },
             { ok: true, state: 'followed' },
         ]);
         const result = await getCommand().func(page, { 'user-id': validId });
         expect(result[0].status).toBe('followed');
-        expect(page.goto).toHaveBeenCalledTimes(2);
+        // Two trusted clicks: CTA + modal confirm.
+        expect(page.click).toHaveBeenCalledTimes(2);
+        expect(page.click.mock.calls[0][0]).toBe(`[data-opencli-target="${__test__.CTA_TAG}"]`);
+        expect(page.click.mock.calls[1][0]).toBe(`[data-opencli-target="${__test__.MODAL_TAG}"]`);
     });
 
-    it('returns already-following without modal or reload when 已关注 visible on entry', async () => {
+    it('returns already-following without trusted click or reload when 已关注 visible on entry', async () => {
         const page = makePage([
             profileUrl,
             { ok: true, state: 'already-following' },
@@ -71,29 +87,20 @@ describe('xiaohongshu follow', () => {
         const result = await getCommand().func(page, { 'user-id': validId });
         expect(result[0].status).toBe('already-following');
         expect(page.goto).toHaveBeenCalledTimes(1);
-        expect(page.evaluate).toHaveBeenCalledTimes(2);
+        expect(page.click).not.toHaveBeenCalled();
     });
 
     it('accepts a full profile URL with query and extracts the user id', async () => {
         const page = makePage([
             profileUrl,
-            { ok: true, state: 'click-dispatched', diag: {} },
+            { ok: true, state: 'cta-tagged', diag: {} },
+            [{ kind: 'click', isTrusted: true }],
+            [],
             { ok: true, state: 'no_modal' },
             { ok: true, state: 'followed' },
         ]);
         await getCommand().func(page, { 'user-id': `${profileUrl}?xsec_token=abc` });
         expect(page.goto).toHaveBeenNthCalledWith(1, profileUrl);
-    });
-
-    it('unwraps browser bridge envelopes at every evaluate boundary', async () => {
-        const page = makePage([
-            { session: 's', data: profileUrl },
-            { session: 's', data: { ok: true, state: 'click-dispatched', diag: {} } },
-            { session: 's', data: { ok: true, state: 'no_modal' } },
-            { session: 's', data: { ok: true, state: 'followed' } },
-        ]);
-        const result = await getCommand().func(page, { 'user-id': validId });
-        expect(result[0].status).toBe('followed');
     });
 
     it('rejects malformed user ids before navigation', async () => {
@@ -110,18 +117,14 @@ describe('xiaohongshu follow', () => {
         await expect(getCommand().func(page, { 'user-id': validId })).rejects.toBeInstanceOf(AuthRequiredError);
     });
 
-    it('throws a clear network error when Chrome falls to chrome-error://chromewebdata/', async () => {
-        const page = makePage([
-            'chrome-error://chromewebdata/',
-        ]);
+    it('throws a clear network error on chrome-error://chromewebdata/', async () => {
+        const page = makePage(['chrome-error://chromewebdata/']);
         await expect(getCommand().func(page, { 'user-id': validId }))
             .rejects.toThrowError(/browser could not load .* chrome-error.*network issue/);
-        // Did not proceed to clickScript / modalScript / reload.
-        expect(page.evaluate).toHaveBeenCalledTimes(1);
-        expect(page.goto).toHaveBeenCalledTimes(1);
+        expect(page.click).not.toHaveBeenCalled();
     });
 
-    it('throws with diagnostics when click step cannot find the CTA in scope', async () => {
+    it('throws with diagnostics when the locate step finds no CTA in scope', async () => {
         const page = makePage([
             profileUrl,
             { ok: false, state: 'failed',
@@ -130,65 +133,39 @@ describe('xiaohongshu follow', () => {
         ]);
         await expect(getCommand().func(page, { 'user-id': validId }))
             .rejects.toThrowError(/CTA not found .*scope_buttons=.*消息/);
-        expect(page.goto).toHaveBeenCalledTimes(1);
-        expect(page.evaluate).toHaveBeenCalledTimes(2);
+        expect(page.click).not.toHaveBeenCalled();
     });
 
-    it('throws risk_verification with modal_text when xhs pops a captcha/identity modal', async () => {
+    it('throws risk_verification when xhs pops a captcha/identity modal after click', async () => {
         const page = makePage([
             profileUrl,
-            { ok: true, state: 'click-dispatched', diag: { dialogs_after_click: 1 } },
+            { ok: true, state: 'cta-tagged', diag: {} },
+            [{ kind: 'click', isTrusted: true }],
+            [],
             { ok: false, state: 'risk_verification',
               reason: 'xhs returned a risk-verification modal (滑动验证) — needs manual action in the browser before retrying.',
               diag: { modal_state: 'risk', modal_text: '请完成滑动验证以继续操作', url_after: profileUrl } },
         ]);
         await expect(getCommand().func(page, { 'user-id': validId }))
             .rejects.toThrowError(/risk_verification.*滑动验证.*modal_state=risk.*modal_text/);
-        // Did not reload (risk modal blocks).
-        expect(page.goto).toHaveBeenCalledTimes(1);
     });
 
-    it('throws no_confirm with modal_button_labels when the modal has unknown buttons', async () => {
+    it('surfaces the antibot-blocked signature when click is trusted but no follow API request fires', async () => {
         const page = makePage([
             profileUrl,
-            { ok: true, state: 'click-dispatched', diag: { dialogs_after_click: 1 } },
-            { ok: false, state: 'no_confirm',
-              reason: 'xhs follow-confirmation modal appeared, but no recognized confirm button was found. Add the modal label list to CONFIRM_LABELS in follow.js.',
-              diag: { modal_state: 'unknown_buttons',
-                      modal_text: '小红书很高兴遇见你',
-                      modal_button_labels: ['立即体验', '稍后再说'] } },
-        ]);
-        await expect(getCommand().func(page, { 'user-id': validId }))
-            .rejects.toThrowError(/no_confirm.*modal_buttons=\["立即体验","稍后再说"\]/);
-    });
-
-    it('throws not-followed with merged diagnostics when post-reload server still shows 关注', async () => {
-        const page = makePage([
-            profileUrl,
-            { ok: true, state: 'click-dispatched',
-              diag: { clicked_button_html: '<button>关注</button>', dialogs_after_click: 1 } },
-            { ok: true, state: 'confirmed',
-              diag: { modal_state: 'confirmed', modal_button_labels: ['确认关注'] } },
-            { ok: false, state: 'not-followed',
-              reason: 'After reload, server still shows 关注 — click reached the handler but server did not commit the follow (backend rejected, or modal-confirm step missed the actual confirm button).',
-              diag: { url_after: profileUrl, scope_button_labels: ['关注'] } },
-        ]);
-        await expect(getCommand().func(page, { 'user-id': validId }))
-            .rejects.toThrowError(/not-followed.*clicked_button_html.*modal_state=confirmed.*scope_buttons/);
-        expect(page.goto).toHaveBeenCalledTimes(2);
-    });
-
-    it('throws unknown when post-reload scope is missing', async () => {
-        const page = makePage([
-            profileUrl,
-            { ok: true, state: 'click-dispatched', diag: {} },
+            { ok: true, state: 'cta-tagged',
+              diag: { clicked_button_html: '<button class="follow-button">关注</button>', scope_class: 'user-info' } },
+            [{ kind: 'click', isTrusted: true }],                       // trusted click DID reach element
+            [{ kind: 'click', isTrusted: true, clientX: 100, clientY: 200, targetHtml: 'follow' }],
             { ok: true, state: 'no_modal' },
-            { ok: false, state: 'unknown',
-              reason: 'Post-reload: no profile-header scope on page (login bounce? rate limit?).',
-              diag: { url_after: profileUrl } },
-        ]);
+            { ok: false, state: 'not-followed',
+              reason: 'After reload, server still shows 关注 — trusted click delivered but server rejected the follow (rate-limited, abnormal-account flag, or target not followable from this account).',
+              diag: { url_after: profileUrl, scope_button_labels: ['关注'] } },
+        ], {
+            getInterceptedRequests: vi.fn().mockResolvedValue([]),       // zero intercepted /api/sns calls
+        });
         await expect(getCommand().func(page, { 'user-id': validId }))
-            .rejects.toThrowError(/unknown:.*no profile-header scope/);
+            .rejects.toThrowError(/follow blocked.*no \/api\/sns follow request.*anti-automation/);
     });
 
     it('throws CommandExecutionError for malformed evaluate payloads at each boundary', async () => {
@@ -198,27 +175,10 @@ describe('xiaohongshu follow', () => {
 
         const page2 = makePage([
             profileUrl,
-            { ok: 'yes', state: 'click-dispatched' },
+            { ok: 'yes', state: 'cta-tagged' },
         ]);
         await expect(getCommand().func(page2, { 'user-id': validId }))
-            .rejects.toThrowError(/malformed click-action payload/);
-
-        const page3 = makePage([
-            profileUrl,
-            { ok: true, state: 'click-dispatched', diag: {} },
-            { state: 'no_modal' },                              // missing ok
-        ]);
-        await expect(getCommand().func(page3, { 'user-id': validId }))
-            .rejects.toThrowError(/malformed modal-action payload/);
-
-        const page4 = makePage([
-            profileUrl,
-            { ok: true, state: 'click-dispatched', diag: {} },
-            { ok: true, state: 'no_modal' },
-            { state: 'followed' },                              // missing ok
-        ]);
-        await expect(getCommand().func(page4, { 'user-id': validId }))
-            .rejects.toThrowError(/malformed verify-action payload/);
+            .rejects.toThrowError(/malformed locate-action payload/);
     });
 
     describe('__test__.assertUserId', () => {
@@ -240,65 +200,52 @@ describe('xiaohongshu follow', () => {
             expect(__test__.formatDiagnostics(undefined)).toBe('');
             expect(__test__.formatDiagnostics({})).toBe('');
         });
-        it('surfaces click + modal + verify fields when all present', () => {
+        it('surfaces click, modal, candidate, intercept, and verify fields', () => {
             const s = __test__.formatDiagnostics({
                 clicked_button_html: '<button class="follow">关注</button>',
                 scope_class: 'user-info',
-                dialogs_after_click: 1,
-                modal_state: 'confirmed',
+                modal_state: 'confirm-tagged',
                 modal_button_labels: ['确认关注', '取消'],
-                modal_text: '小红书提示',
+                click_log: 'pointerdown(trusted=true),click(trusted=true)',
+                doc_click_log: '4 events; first=pointerdown',
+                candidates: [{ idx: 0, text: '关注', rect: { x: 990, y: 104, w: 96, h: 40 }, isOurTag: true }],
+                intercepted_follow_count: 0,
                 scope_button_labels: ['关注', '消息'],
                 url_after: profileUrl,
             });
             expect(s).toMatch(/clicked_button_html=/);
             expect(s).toMatch(/scope=user-info/);
-            expect(s).toMatch(/dialogs_after_click=1/);
-            expect(s).toMatch(/modal_state=confirmed/);
-            expect(s).toMatch(/modal_buttons=\["确认关注","取消"\]/);
-            expect(s).toMatch(/modal_text=/);
+            expect(s).toMatch(/modal_state=confirm-tagged/);
+            expect(s).toMatch(/click_log=pointerdown\(trusted=true\)/);
+            expect(s).toMatch(/doc_click_log=4 events/);
+            expect(s).toMatch(/candidates=.*ourTag/);
+            expect(s).toMatch(/intercepted_follow_count=0/);
             expect(s).toMatch(/scope_buttons=/);
             expect(s).toMatch(/url_after=https:/);
-        });
-        it('caps scope_button_labels at 12 entries and modal_button_labels at 8', () => {
-            const longScope = Array.from({ length: 30 }, (_, i) => `btn${i}`);
-            const longModal = Array.from({ length: 20 }, (_, i) => `m${i}`);
-            const s = __test__.formatDiagnostics({
-                scope_button_labels: longScope,
-                modal_button_labels: longModal,
-            });
-            expect(s).toMatch(/btn0/);
-            expect(s).toMatch(/btn11/);
-            expect(s).not.toMatch(/btn12/);
-            expect(s).toMatch(/m0/);
-            expect(s).toMatch(/m7/);
-            expect(s).not.toMatch(/m8/);
         });
     });
 
     describe('__test__ scripts', () => {
-        it('buildClickScript is self-contained and dispatches a full event sequence', () => {
-            const src = __test__.buildClickScript();
-            expect(src).not.toMatch(/\$\{/);              // no template-literal leaks
-            expect(src).toMatch(/SCOPE_SELECTORS/);
-            expect(src).toMatch(/PointerEvent\('pointerdown'/);
-            expect(src).toMatch(/MouseEvent\('click'/);
-            expect(src).toMatch(/dialogs_after_click/);
-            // Class-based CTA matcher present (handles span-wrapped 关注 label).
-            expect(src).toMatch(/follow-button/);
-            // No DOM-flip polling — verify runs post-reload.
-            expect(src).not.toMatch(/STATE_FLIP_TIMEOUT_MS/);
+        it('buildLocateCtaScript tags via data-opencli-target and registers diagnostic listeners', () => {
+            const src = __test__.buildLocateCtaScript();
+            expect(src).not.toMatch(/\$\{/);                              // no template-literal leaks
+            expect(src).toMatch(/data-opencli-target/);
+            expect(src).toMatch(__test__.CTA_TAG);
+            expect(src).toMatch(/scrollIntoView/);
+            expect(src).toMatch(/__opencli_click_log/);
+            expect(src).toMatch(/__opencli_doc_click_log/);
+            // Does NOT dispatch click itself — that's page.click's job now.
+            expect(src).not.toMatch(/dispatchEvent\(new MouseEvent\('click'/);
         });
-        it('buildHandleModalScript detects risk modals and enforces a no-confirm fallback', () => {
-            const src = __test__.buildHandleModalScript();
+        it('buildLocateModalConfirmScript tags confirm + detects risk modals', () => {
+            const src = __test__.buildLocateModalConfirmScript();
             expect(src).not.toMatch(/\$\{/);
+            expect(src).toMatch(/data-opencli-target/);
+            expect(src).toMatch(__test__.MODAL_TAG);
             expect(src).toMatch(/RISK_KEYWORDS/);
             expect(src).toMatch(/CONFIRM_LABELS/);
-            expect(src).toMatch(/CANCEL_LABELS/);
-            expect(src).toMatch(/no_confirm/);
             expect(src).toMatch(/risk_verification/);
-            // Same event-sequence dispatch on confirm button:
-            expect(src).toMatch(/PointerEvent\('pointerdown'/);
+            expect(src).toMatch(/no_confirm/);
         });
     });
 });

@@ -1,7 +1,5 @@
 /**
- * Xiaohongshu follow — clicks the follow CTA, dismisses any post-click
- * confirmation modal, then reloads the profile and verifies the relation
- * flipped from the server's perspective.
+ * Xiaohongshu follow — drives the profile UI to follow a user.
  *
  * xhs public web APIs require `x-s`/`x-t`/`x-s-common` signing that the page
  * can produce but cannot be replayed reliably from outside (a direct
@@ -10,34 +8,41 @@
  * Live-test evolution of this adapter (see
  * ml-scout/.context/opencli-xhs-follow-bug.md for the full history):
  *
- *   • v1 used `.click()` + DOM-flip polling. Looked fine, but in real batches
- *     0/7 succeeded — the optimistic UI flip from `.click()` could happen
- *     without the framework's onClick ever firing.
+ *   • v1: `.click()` + DOM-flip polling — 0/7 succeeded in live batches.
  *
- *   • v2 (last commit) replaced `.click()` with a full pointer/mouse/click
- *     event sequence and switched verification to a post-reload server-truth
- *     read. Diagnostics surfaced in the failure error revealed the actual
- *     remaining issue: `dialogs_after_click=1` on every failure — xhs pops a
- *     confirmation modal after the follow click on some accounts/sessions,
- *     and follow.js wasn't dismissing it (unfollow.js already does so for its
- *     own modal).
+ *   • v2: full pointer/mouse/click event-sequence dispatch + reload-verify.
+ *     Diagnostics surfaced dialogs_after_click=1 on every failure, and the
+ *     verify step proved the server never committed the follow.
  *
- *   • v3 (this revision) adds the modal-dismissal step between click and
- *     reload. The modal handler also detects risk-verification modals
- *     (含验证 / 扫码 / 实名 / 风险) and surfaces a specific error so callers
- *     know it's a manual-step issue, not a code bug.
+ *   • v3: added a post-click modal-handler (.d-modal etc.) to dismiss
+ *     confirmation modals — still 0/7. The diagnostics from that run showed
+ *     modal handler returning 'no_modal', meaning dialogs_after_click was a
+ *     false-positive match against a non-modal element with "modal" in its
+ *     class, NOT a real confirmation modal.
+ *
+ *   • v4 (this revision): SWITCHED click delivery from page.evaluate
+ *     `dispatchEvent` to opencli's `page.click()` which uses CDP
+ *     `Input.dispatchMouseEvent` — producing `event.isTrusted=true`. xhs's
+ *     Vue/reds-button-new follow handler is the textbook profile of a target
+ *     that gates on `event.isTrusted` (well-known anti-automation pattern,
+ *     and consistent with our v2/v3 evidence: clicks "happened" optimistically
+ *     but the server never accepted them). page.evaluate now just LOCATES the
+ *     CTA and tags it with `data-opencli-target`; the actual click is
+ *     dispatched via CDP from JS land.
  *
  * Flow:
  *   1. Navigate to https://www.xiaohongshu.com/user/profile/<userId>
- *   2. Login redirect check
- *   3. Click step: locate CTA in profile-header scope (no fallback to
- *      document — see v1→v2 notes), dispatch full event sequence.
- *   4. Modal step: if a dialog is visible, find a confirm button by label,
- *      dispatch the same event sequence on it. If the modal text looks like
- *      a risk-verification prompt, throw with that signal instead.
- *   5. Reload step: page.goto(url) so xhs refetches relation state from the
- *      server through its own signed request.
- *   6. Verify step: re-read the button label. Authoritative.
+ *   2. Login redirect check (URL + chrome-error guard)
+ *   3. Locate-and-tag: page.evaluate finds the CTA in profile-header scope
+ *      and tags it with `data-opencli-target="xhs-follow-cta"`. Returns
+ *      'already-following' early on the idempotent fast path.
+ *   4. Trusted click: page.click('[data-opencli-target="xhs-follow-cta"]')
+ *      → CDP dispatchMouseEvent.
+ *   5. Modal step: if a confirmation modal pops up, tag the confirm button
+ *      and trusted-click it too. Risk-verification modals (验证码/扫码/实名)
+ *      are surfaced as a distinct error class.
+ *   6. Reload-verify: page.goto(url) so xhs refetches relation state from the
+ *      server, then re-read the button label.
  *
  * Requires: logged into www.xiaohongshu.com in Chrome.
  */
@@ -50,6 +55,9 @@ const MODAL_MOUNT_SETTLE_MS = 900;
 const POST_CONFIRM_SETTLE_MS = 1000;
 const RELOAD_SETTLE_MS = 2500;
 const USER_ID_RE = /^[a-zA-Z0-9]{8,32}$/;
+
+const CTA_TAG = 'xhs-follow-cta';
+const MODAL_TAG = 'xhs-follow-modal-confirm';
 
 function unwrapEvaluateResult(payload) {
     if (payload && typeof payload === 'object' && 'session' in payload && 'data' in payload) {
@@ -97,26 +105,77 @@ function formatDiagnostics(diag) {
         parts.push(`scope_buttons=${JSON.stringify(diag.scope_button_labels.slice(0, 12))}`);
     }
     if (diag.url_after) parts.push(`url_after=${diag.url_after}`);
+    if (diag.click_dispatch_error) parts.push(`click_dispatch_error=${JSON.stringify(diag.click_dispatch_error)}`);
+    if (diag.click_log) parts.push(`click_log=${diag.click_log}`);
+    if (diag.doc_click_log) parts.push(`doc_click_log=${diag.doc_click_log}`);
+    if (Array.isArray(diag.candidates) && diag.candidates.length > 0) {
+        parts.push(`candidates=${JSON.stringify(diag.candidates.map((c) => ({ idx: c.idx, text: c.text, rect: c.rect, ourTag: c.isOurTag })))}`);
+    }
+    if (typeof diag.intercepted_follow_count === 'number') {
+        parts.push(`intercepted_follow_count=${diag.intercepted_follow_count}`);
+    }
+    if (diag.intercepted_follow_summary) {
+        parts.push(`intercepted_follow=${JSON.stringify(String(diag.intercepted_follow_summary).slice(0, 300))}`);
+    }
+    if (diag.interceptor_status) parts.push(`interceptor_status=${JSON.stringify(diag.interceptor_status)}`);
     return parts.length ? ` [${parts.join('; ')}]` : '';
 }
 
 /**
- * Page-context click script. Locates the follow CTA inside a profile-header
- * scope and dispatches the full event sequence.
+ * Summarize an array of intercepted /follow request entries into a short
+ * string for diagnostics. Each entry is {url, data} where data is the parsed
+ * JSON response body if available.
+ */
+function summarizeInterceptedFollows(entries) {
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    const parts = [];
+    for (const entry of entries.slice(0, 3)) {
+        const url = entry?.url ? String(entry.url).split('?')[0].slice(-80) : '<no-url>';
+        const data = entry?.data;
+        const success = data?.success;
+        const code = data?.code;
+        const msg = data?.msg;
+        parts.push(`${url}: success=${JSON.stringify(success)} code=${JSON.stringify(code)} msg=${JSON.stringify(msg)}`);
+    }
+    return parts.join(' | ');
+}
+
+/**
+ * Page-context locate-and-tag for the follow CTA. Does NOT click — the actual
+ * click is sent via opencli's `page.click()` (CDP trusted) from JS land. The
+ * tag attribute (`data-opencli-target`) is unique enough to survive a few
+ * milliseconds; we sweep stale tags on every locate call.
  *
  * Returns `{ ok, state, reason?, diag? }`:
  *   ok: true,  state: 'already-following'  → no click needed
- *   ok: true,  state: 'click-dispatched'   → click sent; modal-check next
- *   ok: false, state: 'failed'             → reason + diag for surfaced error
+ *   ok: true,  state: 'cta-tagged'         → CTA tagged; caller should
+ *                                            page.click('[data-opencli-target=xhs-follow-cta]')
+ *   ok: false, state: 'failed'             → reason + diag
  */
-function buildClickScript() {
+function buildLocateCtaScript() {
     return `
 (() => {
+  const TAG_ATTR = 'data-opencli-target';
+  const TAG_VALUE = '${CTA_TAG}';
+
   const FOLLOW_LABELS = ['关注', '+ 关注', '+关注'];
   const FOLLOWING_LABELS = ['已关注', '已互关', '互相关注'];
 
-  const isVisible = (el) => !!el && el.offsetParent !== null;
+  const isVisible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    return true;
+  };
   const textOf = (el) => (el.innerText || el.textContent || '').trim();
+
+  // Sweep stale tags from any prior run (defensive — adapter normally resets
+  // via reload between iterations, but be belt-and-suspenders).
+  for (const el of document.querySelectorAll('[' + TAG_ATTR + ']')) {
+    el.removeAttribute(TAG_ATTR);
+  }
 
   const SCOPE_SELECTORS = [
     '.user-info', '.profile-info', '.user-detail', '.profile-page',
@@ -148,13 +207,9 @@ function buildClickScript() {
     }
     return null;
   };
-  // Sometimes the CTA wraps the label in <span><span>关注</span></span> and
-  // the class chain ('reds-button-new follow-button …') is the most reliable
-  // way to identify it. Prefer class-match first, fall back to label-match.
   const findCtaByClass = () => {
     for (const root of scopes) {
-      const candidates = root.querySelectorAll('button.follow-button, button[class*="follow-button"]');
-      for (const el of candidates) {
+      for (const el of root.querySelectorAll('button.follow-button, button[class*="follow-button"]')) {
         if (isVisible(el)) return el;
       }
     }
@@ -170,30 +225,19 @@ function buildClickScript() {
     return '(unscoped)';
   };
 
-  // Idempotent fast path: viewer already follows the target. Check by label
-  // first so 已关注 / 已互关 wins even when the class chain is shared.
+  // Idempotent fast path.
   if (findButtonByLabels(FOLLOWING_LABELS)) {
     return { ok: true, state: 'already-following' };
   }
 
-  // CTA preference: class-match (handles span-wrapped label), then label-match.
-  let followBtn = findCtaByClass();
-  if (followBtn) {
-    const t = textOf(followBtn);
-    // If the class-matched button shows a following-state label, treat as
-    // already-following (class chain is reused between states).
-    if (FOLLOWING_LABELS.includes(t)) {
-      return { ok: true, state: 'already-following' };
-    }
-    if (!FOLLOW_LABELS.includes(t) && t !== '') {
-      // Class said follow-button but text isn't a known label — let label
-      // matcher take over to avoid misclicking some other follow-button-style
-      // element (e.g. "关注的人" / "粉丝/关注" sub-control).
-      followBtn = null;
-    }
+  let cta = findCtaByClass();
+  if (cta) {
+    const t = textOf(cta);
+    if (FOLLOWING_LABELS.includes(t)) return { ok: true, state: 'already-following' };
+    if (!FOLLOW_LABELS.includes(t) && t !== '') cta = null;
   }
-  if (!followBtn) followBtn = findButtonByLabels(FOLLOW_LABELS);
-  if (!followBtn) {
+  if (!cta) cta = findButtonByLabels(FOLLOW_LABELS);
+  if (!cta) {
     return {
       ok: false, state: 'failed',
       reason: 'Follow CTA not found in profile-header scope (logged out, blocked, private, or label list out of date).',
@@ -204,31 +248,57 @@ function buildClickScript() {
     };
   }
 
-  // Full event sequence (see header comment for rationale).
-  const rect = followBtn.getBoundingClientRect();
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
-  const opts = { bubbles: true, cancelable: true, view: window, button: 0,
-                 clientX: cx, clientY: cy };
-  try { followBtn.dispatchEvent(new PointerEvent('pointerover', opts)); } catch (_) {}
-  try { followBtn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
-  followBtn.dispatchEvent(new MouseEvent('mousedown', opts));
-  try { followBtn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
-  followBtn.dispatchEvent(new MouseEvent('mouseup', opts));
-  followBtn.dispatchEvent(new MouseEvent('click', opts));
-  try { followBtn.click(); } catch (_) {}
+  // Dump all candidate buttons so we can spot WHICH one we picked vs the
+  // duplicate that's confusing the scope walker.
+  const allCandidates = collectButtons()
+    .filter((b) => FOLLOW_LABELS.includes(textOf(b)) || FOLLOWING_LABELS.includes(textOf(b)))
+    .map((b, idx) => ({
+      idx, text: textOf(b),
+      html: (b.outerHTML || '').slice(0, 160),
+      rect: (() => { const r = b.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; })(),
+      isOurTag: b === cta,
+    }));
 
-  const dialogsAfter = document.querySelectorAll(
-    '[role="dialog"], .modal, [class*="modal"], [class*="Modal"], .d-modal, .d-modal-footer'
-  ).length;
+  cta.setAttribute(TAG_ATTR, TAG_VALUE);
+  // Scroll into view so the CDP click coordinate sits inside the viewport.
+  try { cta.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {
+    try { cta.scrollIntoView(); } catch (_) {}
+  }
+
+  // Wire up event listeners so we can prove whether the click actually
+  // reaches this element (and at what trust level).
+  try { delete window.__opencli_click_log; } catch (_) {}
+  Object.defineProperty(window, '__opencli_click_log', {
+    value: [], writable: true, enumerable: false, configurable: true,
+  });
+  // Also document-level capture, so we observe clicks landing anywhere on
+  // the page (even if not on the tagged element). Critical for diagnosing
+  // 'clicked-the-wrong-element'.
+  try { delete window.__opencli_doc_click_log; } catch (_) {}
+  Object.defineProperty(window, '__opencli_doc_click_log', {
+    value: [], writable: true, enumerable: false, configurable: true,
+  });
+  const _logEvent = (kind, sink) => (e) => {
+    try {
+      window[sink].push({
+        kind, isTrusted: e.isTrusted,
+        clientX: e.clientX, clientY: e.clientY,
+        targetHtml: (e.target && e.target.outerHTML ? e.target.outerHTML.slice(0, 120) : ''),
+      });
+    } catch (_) {}
+  };
+  for (const evt of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+    cta.addEventListener(evt, _logEvent(evt, '__opencli_click_log'), { capture: true });
+    document.addEventListener(evt, _logEvent(evt, '__opencli_doc_click_log'), { capture: true });
+  }
 
   return {
-    ok: true, state: 'click-dispatched',
+    ok: true, state: 'cta-tagged',
     diag: {
-      clicked_button_html: (followBtn.outerHTML || '').slice(0, 240),
-      scope_class: closestScopeClass(followBtn),
-      dialogs_after_click: dialogsAfter,
+      clicked_button_html: (cta.outerHTML || '').slice(0, 240),
+      scope_class: closestScopeClass(cta),
       url_after: location.href,
+      candidates: allCandidates,
     },
   };
 })()
@@ -236,35 +306,47 @@ function buildClickScript() {
 }
 
 /**
- * Page-context modal handler. Runs after click; idempotent when no modal is
- * up. If a modal is visible:
- *   • Risk / verify-style modal text → return state='risk_verification'
- *   • Confirm button found by label  → dispatch event sequence, return 'confirmed'
- *   • Modal up but no recognized button → return 'no_confirm' with diag
+ * Page-context modal handler — locates the post-click confirmation modal (if
+ * any), tags its confirm button, and reports back. The trusted click is again
+ * sent from JS land via page.click().
  *
  * Returns `{ ok, state, reason?, diag? }`:
- *   ok: true,  state: 'no_modal'           → no dialog visible (skip)
- *   ok: true,  state: 'confirmed'          → confirm button clicked
- *   ok: false, state: 'risk_verification'  → captcha / 实名 / scan needed
- *   ok: false, state: 'no_confirm'         → modal up, no recognized button
+ *   ok: true,  state: 'no_modal'              → no dialog visible (skip)
+ *   ok: true,  state: 'confirm-tagged'        → confirm button tagged
+ *   ok: false, state: 'risk_verification'     → captcha / 实名 / scan
+ *   ok: false, state: 'no_confirm'            → modal up, no recognized button
  */
-function buildHandleModalScript() {
+function buildLocateModalConfirmScript() {
     return `
 (() => {
-  const isVisible = (el) => !!el && el.offsetParent !== null;
+  const TAG_ATTR = 'data-opencli-target';
+  const TAG_VALUE = '${MODAL_TAG}';
+
+  const isVisible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    return true;
+  };
   const textOf = (el) => (el.innerText || el.textContent || '').trim();
 
-  // Broad modal-root lookup; xhs uses several widget conventions across
-  // surfaces (creator center, main site, profile pages).
+  // Sweep prior modal tag.
+  for (const el of document.querySelectorAll('[' + TAG_ATTR + '="' + TAG_VALUE + '"]')) {
+    el.removeAttribute(TAG_ATTR);
+  }
+
+  // Modal lookup — broader than before to handle xhs's multiple widget
+  // conventions. We filter to visibly-mounted ones with non-zero area.
   const MODAL_SELECTORS = [
     '[role="dialog"]', '.modal', '[class*="modal"]', '[class*="Modal"]',
-    '.d-modal', '.d-modal-content', '.d-dialog',
+    '.d-modal', '.d-modal-content', '.d-dialog', '.reds-modal', '[class*="reds-modal"]',
   ];
   const modalRoots = MODAL_SELECTORS
     .flatMap((sel) => Array.from(document.querySelectorAll(sel)))
     .filter(isVisible);
-  // Pick the largest visible modal as the primary one (avoids snagging a
-  // hidden offscreen modal shell).
+  // Largest visible first — primary modal.
   modalRoots.sort((a, b) => {
     const ra = a.getBoundingClientRect();
     const rb = b.getBoundingClientRect();
@@ -277,8 +359,6 @@ function buildHandleModalScript() {
 
   const modalText = textOf(modal).slice(0, 300);
 
-  // Risk / verification heuristics — these CANNOT be auto-dismissed.
-  // Surface a distinct error so the caller knows it's manual-step territory.
   const RISK_KEYWORDS = ['验证码', '滑动验证', '安全验证', '扫码', '实名认证', '风险', '人机验证', '请验证'];
   for (const kw of RISK_KEYWORDS) {
     if (modalText.includes(kw)) {
@@ -290,25 +370,18 @@ function buildHandleModalScript() {
     }
   }
 
-  // Find a confirm button. Order matters — most-specific first.
-  // Explicitly EXCLUDE cancel-like labels (取消 / 关闭 / 拒绝 / 暂不 / 不是).
   const CONFIRM_LABELS = ['确认关注', '立即关注', '继续关注', '确定', '继续', '同意', '我知道了', '知道了', 'OK'];
   const CANCEL_LABELS = ['取消', '关闭', '拒绝', '暂不', '暂不关注', '不是', 'Cancel'];
 
-  const buttons = Array.from(
-    modal.querySelectorAll('button, [role="button"], .reds-button-new')
-  ).filter(isVisible);
+  const buttons = Array.from(modal.querySelectorAll('button, [role="button"], .reds-button-new'))
+    .filter(isVisible);
   const buttonLabels = buttons.map(textOf);
 
   let confirmBtn = null;
-  // Pass 1: exact match against confirm labels in priority order.
   for (const label of CONFIRM_LABELS) {
     const hit = buttons.find((b) => textOf(b) === label);
     if (hit) { confirmBtn = hit; break; }
   }
-  // Pass 2: any button whose label is NOT a cancel-like label. Last-resort
-  // for when xhs uses fresh copy we haven't seen. If there's only one button
-  // in the modal and it's not "取消"-shaped, click it.
   if (!confirmBtn && buttons.length === 1) {
     const t = textOf(buttons[0]);
     if (!CANCEL_LABELS.includes(t)) confirmBtn = buttons[0];
@@ -326,32 +399,27 @@ function buildHandleModalScript() {
     };
   }
 
-  // Dispatch full event sequence (modal button is React too).
-  const rect = confirmBtn.getBoundingClientRect();
-  const opts = { bubbles: true, cancelable: true, view: window, button: 0,
-                 clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
-  try { confirmBtn.dispatchEvent(new PointerEvent('pointerover', opts)); } catch (_) {}
-  try { confirmBtn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
-  confirmBtn.dispatchEvent(new MouseEvent('mousedown', opts));
-  try { confirmBtn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
-  confirmBtn.dispatchEvent(new MouseEvent('mouseup', opts));
-  confirmBtn.dispatchEvent(new MouseEvent('click', opts));
-  try { confirmBtn.click(); } catch (_) {}
+  confirmBtn.setAttribute(TAG_ATTR, TAG_VALUE);
 
   return {
-    ok: true, state: 'confirmed',
-    diag: { modal_state: 'confirmed', modal_button_labels: buttonLabels, clicked_button_html: (confirmBtn.outerHTML || '').slice(0, 200) },
+    ok: true, state: 'confirm-tagged',
+    diag: {
+      modal_state: 'confirm-tagged',
+      modal_button_labels: buttonLabels,
+      clicked_button_html: (confirmBtn.outerHTML || '').slice(0, 200),
+    },
   };
 })()
 `;
 }
 
 /**
- * Page-context verify script, run AFTER a reload of the profile URL.
+ * Page-context verify script, run AFTER a reload. Reads the post-reload
+ * button state from the freshly server-rendered page.
  *
  * Returns `{ ok, state, reason?, diag? }`:
  *   ok: true,  state: 'followed'           → server confirms relation flipped
- *   ok: false, state: 'not-followed'       → server still shows 关注 (no effect)
+ *   ok: false, state: 'not-followed'       → server still shows 关注
  *   ok: false, state: 'unknown'            → scope/button missing post-reload
  */
 function buildVerifyFollowScript() {
@@ -360,7 +428,14 @@ function buildVerifyFollowScript() {
   const FOLLOW_LABELS = ['关注', '+ 关注', '+关注'];
   const FOLLOWING_LABELS = ['已关注', '已互关', '互相关注'];
 
-  const isVisible = (el) => !!el && el.offsetParent !== null;
+  const isVisible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    return true;
+  };
   const textOf = (el) => (el.innerText || el.textContent || '').trim();
 
   const SCOPE_SELECTORS = [
@@ -392,7 +467,7 @@ function buildVerifyFollowScript() {
   if (buttons.some((b) => FOLLOW_LABELS.includes(textOf(b)))) {
     return {
       ok: false, state: 'not-followed',
-      reason: 'After reload, server still shows 关注 — click reached the handler but server did not commit the follow (backend rejected, or modal-confirm step missed the actual confirm button).',
+      reason: 'After reload, server still shows 关注 — trusted click delivered but server rejected the follow (rate-limited, abnormal-account flag, or target not followable from this account).',
       diag: { url_after: location.href, scope_button_labels: labels },
     };
   }
@@ -409,7 +484,7 @@ cli({
     site: 'xiaohongshu',
     name: 'follow',
     access: 'write',
-    description: '关注小红书用户 (profile UI + modal-handling + reload-verify)',
+    description: '关注小红书用户 (profile UI + CDP-trusted click + reload-verify)',
     domain: 'www.xiaohongshu.com',
     strategy: Strategy.COOKIE,
     navigateBefore: false,
@@ -437,10 +512,6 @@ cli({
             if (typeof hrefRaw !== 'string') {
                 throw new CommandExecutionError('xiaohongshu/follow: malformed current-url payload');
             }
-            // Chrome failed to load the profile (network down, TLS intercept,
-            // DNS, etc.) → href is chrome-error://chromewebdata/. Surface this
-            // distinctly instead of letting the click step misreport it as
-            // "selectors changed".
             if (/^(chrome-error|about|data):/i.test(hrefRaw)) {
                 throw new CommandExecutionError(
                     `xiaohongshu/follow: browser could not load ${url} — got ${hrefRaw} (network issue, TLS intercept proxy, or DNS failure)`,
@@ -451,40 +522,126 @@ cli({
                 throw new AuthRequiredError('www.xiaohongshu.com');
             }
 
-            // Step 1: locate + click.
-            const clickResult = requireActionResult(
-                await page.evaluate(buildClickScript()),
-                'click-action',
+            // Install a broad interceptor on /api/sns/web — captures every
+            // xhs API call during the click flow. Narrowing later by URL
+            // substring in the post-click summarizer. This is the definitive
+            // signal for click-actually-hit-handler vs click-missed.
+            let interceptorReady = false;
+            let interceptorInstallError = null;
+            try {
+                await page.installInterceptor('/api/sns');
+                interceptorReady = true;
+            } catch (err) {
+                interceptorInstallError = String(err?.message ?? err);
+            }
+
+            // Step 1: locate + tag the CTA in page context.
+            const locateResult = requireActionResult(
+                await page.evaluate(buildLocateCtaScript()),
+                'locate-action',
             );
-            if (!clickResult.ok) {
+            if (!locateResult.ok) {
                 throw new CommandExecutionError(
-                    `xiaohongshu/follow failed: ${clickResult.reason ?? 'unknown click failure'}${formatDiagnostics(clickResult.diag)}`,
+                    `xiaohongshu/follow failed: ${locateResult.reason ?? 'unknown locate failure'}${formatDiagnostics(locateResult.diag)}`,
                 );
             }
-            if (clickResult.state === 'already-following') {
+            if (locateResult.state === 'already-following') {
                 return [{ status: 'already-following', user_id: userId, url }];
             }
 
-            // Step 2: handle any post-click confirmation modal. xhs pops one on
-            // some sessions; live diagnostics with `dialogs_after_click=1` plus
-            // a server that wasn't committing the follow proved the modal was
-            // intercepting the request. Idempotent — no-ops cleanly when no
-            // modal is up.
+            // Step 2: deliver a trusted click on the tagged CTA via CDP. This
+            // bypasses xhs's isTrusted gating (page.evaluate-dispatched
+            // synthetic events are isTrusted=false and ignored).
+            let clickDispatchError = null;
+            try {
+                await page.click(`[data-opencli-target="${CTA_TAG}"]`);
+            } catch (err) {
+                clickDispatchError = String(err?.message ?? err);
+            }
+
+            // Pull the click event logs — both element-level (did click reach
+            // tagged element?) and document-level (did click happen anywhere?).
+            let clickLog = [];
+            let docClickLog = [];
+            try {
+                const rawLog = unwrapEvaluateResult(await page.evaluate('() => window.__opencli_click_log || []'));
+                if (Array.isArray(rawLog)) clickLog = rawLog;
+                const rawDoc = unwrapEvaluateResult(await page.evaluate('() => window.__opencli_doc_click_log || []'));
+                if (Array.isArray(rawDoc)) docClickLog = rawDoc;
+            } catch (_) {}
+            const clickLogSummary = clickLog.length === 0
+                ? 'no-events-on-cta'
+                : clickLog.map((e) => `${e.kind}(trusted=${e.isTrusted})`).join(',');
+            const docClickLogSummary = docClickLog.length === 0
+                ? 'no-events-anywhere'
+                : `${docClickLog.length} events; first=${docClickLog[0]?.kind}@(${docClickLog[0]?.clientX},${docClickLog[0]?.clientY}) trusted=${docClickLog[0]?.isTrusted} target=${JSON.stringify(docClickLog[0]?.targetHtml ?? '')}`;
+
+            if (clickDispatchError) {
+                throw new CommandExecutionError(
+                    `xiaohongshu/follow: trusted CTA click failed: ${clickDispatchError}${formatDiagnostics({ ...locateResult.diag, click_dispatch_error: clickDispatchError, click_log: clickLogSummary })}`,
+                );
+            }
+
+            // Step 3: handle any post-click confirmation modal.
             await page.wait({ time: MODAL_MOUNT_SETTLE_MS / 1000 });
             const modalResult = requireActionResult(
-                await page.evaluate(buildHandleModalScript()),
+                await page.evaluate(buildLocateModalConfirmScript()),
                 'modal-action',
             );
             if (!modalResult.ok) {
-                const merged = { ...(clickResult.diag ?? {}), ...(modalResult.diag ?? {}) };
+                const merged = { ...(locateResult.diag ?? {}), ...(modalResult.diag ?? {}) };
                 throw new CommandExecutionError(
                     `xiaohongshu/follow ${modalResult.state}: ${modalResult.reason ?? 'modal step failed'}${formatDiagnostics(merged)}`,
                 );
             }
+            if (modalResult.state === 'confirm-tagged') {
+                try {
+                    await page.click(`[data-opencli-target="${MODAL_TAG}"]`);
+                } catch (err) {
+                    const merged = {
+                        ...(locateResult.diag ?? {}),
+                        ...(modalResult.diag ?? {}),
+                        click_dispatch_error: String(err?.message ?? err),
+                    };
+                    throw new CommandExecutionError(
+                        `xiaohongshu/follow: trusted modal-confirm click failed: ${err?.message ?? String(err)}${formatDiagnostics(merged)}`,
+                    );
+                }
+            }
 
-            // Step 3: reload to force server-side relation state into the DOM,
-            // then verify. Authoritative — no relying on optimistic React flip.
+            // Step 4: pull intercepted /api/sns requests BEFORE the reload.
+            // installInterceptor patches the current document's XHR/fetch and
+            // stores hits on window.__opencli_xhr — both are wiped by a
+            // navigation. Pulling here captures everything the click flow
+            // generated.
             await page.wait({ time: POST_CONFIRM_SETTLE_MS / 1000 });
+            let allIntercepted = [];
+            let interceptedFollows = [];
+            if (interceptorReady) {
+                try {
+                    const raw = await page.getInterceptedRequests();
+                    allIntercepted = Array.isArray(raw) ? raw : [];
+                    interceptedFollows = allIntercepted.filter((e) => {
+                        const u = String(e?.url ?? '');
+                        return u.includes('/follow') || u.includes('/relation');
+                    });
+                } catch (_) { /* swallow — diagnostic-only */ }
+            }
+            const interceptDiag = {
+                intercepted_follow_count: interceptedFollows.length,
+                intercepted_follow_summary: summarizeInterceptedFollows(interceptedFollows)
+                    ?? (allIntercepted.length > 0
+                        ? `no-follow-match among ${allIntercepted.length} api calls; sample: ${allIntercepted
+                            .slice(0, 5)
+                            .map((e) => String(e?.url ?? '').split('?')[0].slice(-80))
+                            .join(' | ')}`
+                        : undefined),
+                interceptor_status: interceptorReady
+                    ? `ready (captured ${allIntercepted.length} total)`
+                    : `install-failed: ${interceptorInstallError ?? 'unknown'}`,
+            };
+
+            // Step 5: reload + verify against fresh server state.
             await page.goto(url);
             await page.wait({ time: RELOAD_SETTLE_MS / 1000 });
 
@@ -494,10 +651,39 @@ cli({
             );
             if (!verifyResult.ok) {
                 const mergedDiag = {
-                    ...(clickResult.diag ?? {}),
+                    ...(locateResult.diag ?? {}),
                     ...(modalResult.diag ?? {}),
+                    ...interceptDiag,
+                    click_log: clickLogSummary,
+                    doc_click_log: docClickLogSummary,
                     ...(verifyResult.diag ?? {}),
                 };
+
+                // Antibot fingerprint: trusted click DID reach the CTA, BUT
+                // no /api/sns/follow request fired, AND server still shows 关注
+                // post-reload. This is the textbook signature of xhs's Vue
+                // handler refusing to act on clicks from an instrumented
+                // (chrome.debugger-attached) Chrome session — the click is
+                // visibly trusted but the handler bails before making the
+                // network call. Not a fixable bug in this layer; surface a
+                // distinct, actionable error.
+                // Trusted click reached the page (doc-level listener is the
+                // reliable signal because Vue sometimes re-mounts the CTA
+                // between locate and click, orphaning element-level
+                // listeners).
+                const sawTrustedClick = docClickLog.some((e) => e.kind === 'click' && e.isTrusted === true)
+                    || clickLog.some((e) => e.kind === 'click' && e.isTrusted === true);
+                if (
+                    verifyResult.state === 'not-followed'
+                    && interceptorReady
+                    && interceptedFollows.length === 0
+                    && sawTrustedClick
+                ) {
+                    throw new CommandExecutionError(
+                        `xiaohongshu/follow blocked: trusted click reached the follow CTA, but xhs's frontend made no /api/sns follow request — almost certainly anti-automation detection on this Chrome profile (chrome.debugger attached / extension-driven). Follow this user manually in the xhs app or browser. UID ${userId}.${formatDiagnostics(mergedDiag)}`,
+                    );
+                }
+
                 throw new CommandExecutionError(
                     `xiaohongshu/follow ${verifyResult.state}: ${verifyResult.reason ?? 'verification failed'}${formatDiagnostics(mergedDiag)}`,
                 );
@@ -514,8 +700,10 @@ cli({
 
 export const __test__ = {
     assertUserId,
-    buildClickScript,
-    buildHandleModalScript,
+    buildLocateCtaScript,
+    buildLocateModalConfirmScript,
     buildVerifyFollowScript,
     formatDiagnostics,
+    CTA_TAG,
+    MODAL_TAG,
 };
