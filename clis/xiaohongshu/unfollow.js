@@ -326,6 +326,11 @@ cli({
             if (typeof hrefRaw !== 'string') {
                 throw new CommandExecutionError('xiaohongshu/unfollow: malformed current-url payload');
             }
+            if (/^(chrome-error|about|data):/i.test(hrefRaw)) {
+                throw new CommandExecutionError(
+                    `xiaohongshu/unfollow: browser could not load ${url} — got ${hrefRaw} (network issue, TLS intercept proxy, or DNS failure)`,
+                );
+            }
             if (/\/login(?:[/?#]|$)/i.test(new URL(hrefRaw).pathname)) {
                 throw new AuthRequiredError('www.xiaohongshu.com');
             }

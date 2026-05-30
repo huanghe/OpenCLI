@@ -437,6 +437,15 @@ cli({
             if (typeof hrefRaw !== 'string') {
                 throw new CommandExecutionError('xiaohongshu/follow: malformed current-url payload');
             }
+            // Chrome failed to load the profile (network down, TLS intercept,
+            // DNS, etc.) → href is chrome-error://chromewebdata/. Surface this
+            // distinctly instead of letting the click step misreport it as
+            // "selectors changed".
+            if (/^(chrome-error|about|data):/i.test(hrefRaw)) {
+                throw new CommandExecutionError(
+                    `xiaohongshu/follow: browser could not load ${url} — got ${hrefRaw} (network issue, TLS intercept proxy, or DNS failure)`,
+                );
+            }
             const parsedHref = new URL(hrefRaw);
             if (/\/login(?:[/?#]|$)/i.test(parsedHref.pathname)) {
                 throw new AuthRequiredError('www.xiaohongshu.com');

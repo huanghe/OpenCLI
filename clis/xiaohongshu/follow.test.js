@@ -110,6 +110,17 @@ describe('xiaohongshu follow', () => {
         await expect(getCommand().func(page, { 'user-id': validId })).rejects.toBeInstanceOf(AuthRequiredError);
     });
 
+    it('throws a clear network error when Chrome falls to chrome-error://chromewebdata/', async () => {
+        const page = makePage([
+            'chrome-error://chromewebdata/',
+        ]);
+        await expect(getCommand().func(page, { 'user-id': validId }))
+            .rejects.toThrowError(/browser could not load .* chrome-error.*network issue/);
+        // Did not proceed to clickScript / modalScript / reload.
+        expect(page.evaluate).toHaveBeenCalledTimes(1);
+        expect(page.goto).toHaveBeenCalledTimes(1);
+    });
+
     it('throws with diagnostics when click step cannot find the CTA in scope', async () => {
         const page = makePage([
             profileUrl,
