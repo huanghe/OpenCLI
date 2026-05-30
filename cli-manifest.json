@@ -29799,7 +29799,7 @@
   {
     "site": "xiaohongshu",
     "name": "follow",
-    "description": "关注小红书用户 (profile UI + reload-verify)",
+    "description": "关注小红书用户 (profile UI + modal-handling + reload-verify)",
     "access": "write",
     "domain": "www.xiaohongshu.com",
     "strategy": "cookie",

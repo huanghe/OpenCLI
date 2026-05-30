@@ -1,40 +1,43 @@
 /**
- * Xiaohongshu follow — clicks the follow button on a user's profile page and
- * verifies the follow took effect by reloading the profile and re-reading the
- * server-truth button state.
+ * Xiaohongshu follow — clicks the follow CTA, dismisses any post-click
+ * confirmation modal, then reloads the profile and verifies the relation
+ * flipped from the server's perspective.
  *
  * xhs public web APIs require `x-s`/`x-t`/`x-s-common` signing that the page
  * can produce but cannot be replayed reliably from outside (a direct
  * `fetch('/api/sns/...')` inside page.evaluate gets 406), so we drive the UI.
  *
- * Two failure modes the previous click-and-poll-button-text implementation hit
- * in real-world batch runs (see ml-scout/.context/opencli-xhs-follow-bug.md):
+ * Live-test evolution of this adapter (see
+ * ml-scout/.context/opencli-xhs-follow-bug.md for the full history):
  *
- *   1. Native `.click()` does not always invoke the React/Vue framework's
- *      synthetic click handler — the button visibly clicks but no relation
- *      request fires. Mitigation: dispatch a full pointer/mouse/click event
- *      sequence (pointerdown → mousedown → pointerup → mouseup → click), then
- *      `.click()` as a final fallback.
+ *   • v1 used `.click()` + DOM-flip polling. Looked fine, but in real batches
+ *     0/7 succeeded — the optimistic UI flip from `.click()` could happen
+ *     without the framework's onClick ever firing.
  *
- *   2. Button text flip ⇌ DOM was unreliable as a "did follow take effect"
- *      signal — xhs's React tree sometimes re-renders late, and (more
- *      seriously) when the click silently fails the local state still toggles
- *      optimistically. Mitigation: after clicking, reload the profile page so
- *      the page re-fetches relation status from the server through its own
- *      signed request, and read the button state from that fresh render.
+ *   • v2 (last commit) replaced `.click()` with a full pointer/mouse/click
+ *     event sequence and switched verification to a post-reload server-truth
+ *     read. Diagnostics surfaced in the failure error revealed the actual
+ *     remaining issue: `dialogs_after_click=1` on every failure — xhs pops a
+ *     confirmation modal after the follow click on some accounts/sessions,
+ *     and follow.js wasn't dismissing it (unfollow.js already does so for its
+ *     own modal).
+ *
+ *   • v3 (this revision) adds the modal-dismissal step between click and
+ *     reload. The modal handler also detects risk-verification modals
+ *     (含验证 / 扫码 / 实名 / 风险) and surfaces a specific error so callers
+ *     know it's a manual-step issue, not a code bug.
  *
  * Flow:
  *   1. Navigate to https://www.xiaohongshu.com/user/profile/<userId>
- *   2. Detect login redirect (xhs bounces to /login on auth failure)
- *   3. Inside the page: locate the follow CTA inside a profile-header scope
- *      (no fall-through to document — that used to misclick the "关注" tab
- *      label in the timeline tabs). Return 'already-following' if 已关注 is
- *      visible. Otherwise dispatch the full event sequence on the CTA.
- *   4. Reload the profile URL (forces xhs to refetch relation status from the
- *      server) and re-read the button state. Authoritative.
- *   5. On failure, the thrown error carries diagnostic context
- *      (clicked-button HTML, post-click dialog count, scope-button labels)
- *      so the next bug report can pinpoint the failure mode without a rerun.
+ *   2. Login redirect check
+ *   3. Click step: locate CTA in profile-header scope (no fallback to
+ *      document — see v1→v2 notes), dispatch full event sequence.
+ *   4. Modal step: if a dialog is visible, find a confirm button by label,
+ *      dispatch the same event sequence on it. If the modal text looks like
+ *      a risk-verification prompt, throw with that signal instead.
+ *   5. Reload step: page.goto(url) so xhs refetches relation state from the
+ *      server through its own signed request.
+ *   6. Verify step: re-read the button label. Authoritative.
  *
  * Requires: logged into www.xiaohongshu.com in Chrome.
  */
@@ -43,7 +46,8 @@ import { ArgumentError, AuthRequiredError, CliError, CommandExecutionError } fro
 import { normalizeXhsUserId } from './user-helpers.js';
 
 const PROFILE_SETTLE_MS = 2500;
-const POST_CLICK_SETTLE_MS = 1200;
+const MODAL_MOUNT_SETTLE_MS = 900;
+const POST_CONFIRM_SETTLE_MS = 1000;
 const RELOAD_SETTLE_MS = 2500;
 const USER_ID_RE = /^[a-zA-Z0-9]{8,32}$/;
 
@@ -82,6 +86,13 @@ function formatDiagnostics(diag) {
     if (typeof diag.dialogs_after_click === 'number') {
         parts.push(`dialogs_after_click=${diag.dialogs_after_click}`);
     }
+    if (diag.modal_state) parts.push(`modal_state=${diag.modal_state}`);
+    if (Array.isArray(diag.modal_button_labels) && diag.modal_button_labels.length > 0) {
+        parts.push(`modal_buttons=${JSON.stringify(diag.modal_button_labels.slice(0, 8))}`);
+    }
+    if (diag.modal_text) {
+        parts.push(`modal_text=${JSON.stringify(String(diag.modal_text).slice(0, 200))}`);
+    }
     if (Array.isArray(diag.scope_button_labels) && diag.scope_button_labels.length > 0) {
         parts.push(`scope_buttons=${JSON.stringify(diag.scope_button_labels.slice(0, 12))}`);
     }
@@ -91,12 +102,11 @@ function formatDiagnostics(diag) {
 
 /**
  * Page-context click script. Locates the follow CTA inside a profile-header
- * scope and dispatches the full event sequence. Does NOT verify state — that
- * happens after a reload, in buildVerifyFollowScript.
+ * scope and dispatches the full event sequence.
  *
  * Returns `{ ok, state, reason?, diag? }`:
  *   ok: true,  state: 'already-following'  → no click needed
- *   ok: true,  state: 'click-dispatched'   → click sent; reload + verify next
+ *   ok: true,  state: 'click-dispatched'   → click sent; modal-check next
  *   ok: false, state: 'failed'             → reason + diag for surfaced error
  */
 function buildClickScript() {
@@ -108,11 +118,6 @@ function buildClickScript() {
   const isVisible = (el) => !!el && el.offsetParent !== null;
   const textOf = (el) => (el.innerText || el.textContent || '').trim();
 
-  // Scope is REQUIRED, not best-effort. The old code fell back to
-  // document.querySelectorAll('button, [role=button]') when no .user-info /
-  // [class*=profile] container was found, which on some xhs layouts picked
-  // up the "笔记 / 收藏 / 关注" tab label rendered as a [role=button] before
-  // the actual profile-header CTA. Refuse to click instead of guessing.
   const SCOPE_SELECTORS = [
     '.user-info', '.profile-info', '.user-detail', '.profile-page',
     '[class*="user-info"]', '[class*="profile"]',
@@ -143,6 +148,18 @@ function buildClickScript() {
     }
     return null;
   };
+  // Sometimes the CTA wraps the label in <span><span>关注</span></span> and
+  // the class chain ('reds-button-new follow-button …') is the most reliable
+  // way to identify it. Prefer class-match first, fall back to label-match.
+  const findCtaByClass = () => {
+    for (const root of scopes) {
+      const candidates = root.querySelectorAll('button.follow-button, button[class*="follow-button"]');
+      for (const el of candidates) {
+        if (isVisible(el)) return el;
+      }
+    }
+    return null;
+  };
   const scopeButtonLabels = () => collectButtons().map(textOf).filter(Boolean);
   const closestScopeClass = (el) => {
     for (const root of scopes) {
@@ -153,12 +170,29 @@ function buildClickScript() {
     return '(unscoped)';
   };
 
-  // Idempotent fast path: viewer already follows the target.
+  // Idempotent fast path: viewer already follows the target. Check by label
+  // first so 已关注 / 已互关 wins even when the class chain is shared.
   if (findButtonByLabels(FOLLOWING_LABELS)) {
     return { ok: true, state: 'already-following' };
   }
 
-  const followBtn = findButtonByLabels(FOLLOW_LABELS);
+  // CTA preference: class-match (handles span-wrapped label), then label-match.
+  let followBtn = findCtaByClass();
+  if (followBtn) {
+    const t = textOf(followBtn);
+    // If the class-matched button shows a following-state label, treat as
+    // already-following (class chain is reused between states).
+    if (FOLLOWING_LABELS.includes(t)) {
+      return { ok: true, state: 'already-following' };
+    }
+    if (!FOLLOW_LABELS.includes(t) && t !== '') {
+      // Class said follow-button but text isn't a known label — let label
+      // matcher take over to avoid misclicking some other follow-button-style
+      // element (e.g. "关注的人" / "粉丝/关注" sub-control).
+      followBtn = null;
+    }
+  }
+  if (!followBtn) followBtn = findButtonByLabels(FOLLOW_LABELS);
   if (!followBtn) {
     return {
       ok: false, state: 'failed',
@@ -170,31 +204,22 @@ function buildClickScript() {
     };
   }
 
-  // Full event sequence. Plain .click() proved insufficient — some xhs
-  // builds route the actual handler through pointerdown rather than click,
-  // and the optimistic UI flip from .click() masks the no-op as success.
+  // Full event sequence (see header comment for rationale).
   const rect = followBtn.getBoundingClientRect();
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
   const opts = { bubbles: true, cancelable: true, view: window, button: 0,
                  clientX: cx, clientY: cy };
-  try {
-    followBtn.dispatchEvent(new PointerEvent('pointerover', opts));
-  } catch (_) { /* PointerEvent may be unavailable in some sandboxes */ }
-  try {
-    followBtn.dispatchEvent(new PointerEvent('pointerdown', opts));
-  } catch (_) {}
+  try { followBtn.dispatchEvent(new PointerEvent('pointerover', opts)); } catch (_) {}
+  try { followBtn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
   followBtn.dispatchEvent(new MouseEvent('mousedown', opts));
-  try {
-    followBtn.dispatchEvent(new PointerEvent('pointerup', opts));
-  } catch (_) {}
+  try { followBtn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
   followBtn.dispatchEvent(new MouseEvent('mouseup', opts));
   followBtn.dispatchEvent(new MouseEvent('click', opts));
-  // Belt and suspenders.
   try { followBtn.click(); } catch (_) {}
 
   const dialogsAfter = document.querySelectorAll(
-    '[role="dialog"], .modal, [class*="modal"], [class*="Modal"]'
+    '[role="dialog"], .modal, [class*="modal"], [class*="Modal"], .d-modal, .d-modal-footer'
   ).length;
 
   return {
@@ -211,10 +236,118 @@ function buildClickScript() {
 }
 
 /**
- * Page-context verify script, run AFTER a reload of the profile URL. Reads
- * the button state from the freshly server-rendered page. Authoritative for
- * "did follow take effect" because the page just fetched relation status
- * from the server through its own signed request.
+ * Page-context modal handler. Runs after click; idempotent when no modal is
+ * up. If a modal is visible:
+ *   • Risk / verify-style modal text → return state='risk_verification'
+ *   • Confirm button found by label  → dispatch event sequence, return 'confirmed'
+ *   • Modal up but no recognized button → return 'no_confirm' with diag
+ *
+ * Returns `{ ok, state, reason?, diag? }`:
+ *   ok: true,  state: 'no_modal'           → no dialog visible (skip)
+ *   ok: true,  state: 'confirmed'          → confirm button clicked
+ *   ok: false, state: 'risk_verification'  → captcha / 实名 / scan needed
+ *   ok: false, state: 'no_confirm'         → modal up, no recognized button
+ */
+function buildHandleModalScript() {
+    return `
+(() => {
+  const isVisible = (el) => !!el && el.offsetParent !== null;
+  const textOf = (el) => (el.innerText || el.textContent || '').trim();
+
+  // Broad modal-root lookup; xhs uses several widget conventions across
+  // surfaces (creator center, main site, profile pages).
+  const MODAL_SELECTORS = [
+    '[role="dialog"]', '.modal', '[class*="modal"]', '[class*="Modal"]',
+    '.d-modal', '.d-modal-content', '.d-dialog',
+  ];
+  const modalRoots = MODAL_SELECTORS
+    .flatMap((sel) => Array.from(document.querySelectorAll(sel)))
+    .filter(isVisible);
+  // Pick the largest visible modal as the primary one (avoids snagging a
+  // hidden offscreen modal shell).
+  modalRoots.sort((a, b) => {
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    return (rb.width * rb.height) - (ra.width * ra.height);
+  });
+  const modal = modalRoots[0];
+  if (!modal) {
+    return { ok: true, state: 'no_modal' };
+  }
+
+  const modalText = textOf(modal).slice(0, 300);
+
+  // Risk / verification heuristics — these CANNOT be auto-dismissed.
+  // Surface a distinct error so the caller knows it's manual-step territory.
+  const RISK_KEYWORDS = ['验证码', '滑动验证', '安全验证', '扫码', '实名认证', '风险', '人机验证', '请验证'];
+  for (const kw of RISK_KEYWORDS) {
+    if (modalText.includes(kw)) {
+      return {
+        ok: false, state: 'risk_verification',
+        reason: 'xhs returned a risk-verification modal (' + kw + ') — needs manual action in the browser before retrying.',
+        diag: { modal_state: 'risk', modal_text: modalText, url_after: location.href },
+      };
+    }
+  }
+
+  // Find a confirm button. Order matters — most-specific first.
+  // Explicitly EXCLUDE cancel-like labels (取消 / 关闭 / 拒绝 / 暂不 / 不是).
+  const CONFIRM_LABELS = ['确认关注', '立即关注', '继续关注', '确定', '继续', '同意', '我知道了', '知道了', 'OK'];
+  const CANCEL_LABELS = ['取消', '关闭', '拒绝', '暂不', '暂不关注', '不是', 'Cancel'];
+
+  const buttons = Array.from(
+    modal.querySelectorAll('button, [role="button"], .reds-button-new')
+  ).filter(isVisible);
+  const buttonLabels = buttons.map(textOf);
+
+  let confirmBtn = null;
+  // Pass 1: exact match against confirm labels in priority order.
+  for (const label of CONFIRM_LABELS) {
+    const hit = buttons.find((b) => textOf(b) === label);
+    if (hit) { confirmBtn = hit; break; }
+  }
+  // Pass 2: any button whose label is NOT a cancel-like label. Last-resort
+  // for when xhs uses fresh copy we haven't seen. If there's only one button
+  // in the modal and it's not "取消"-shaped, click it.
+  if (!confirmBtn && buttons.length === 1) {
+    const t = textOf(buttons[0]);
+    if (!CANCEL_LABELS.includes(t)) confirmBtn = buttons[0];
+  }
+  if (!confirmBtn) {
+    return {
+      ok: false, state: 'no_confirm',
+      reason: 'xhs follow-confirmation modal appeared, but no recognized confirm button was found. Add the modal label list to CONFIRM_LABELS in follow.js.',
+      diag: {
+        modal_state: 'unknown_buttons',
+        modal_text: modalText,
+        modal_button_labels: buttonLabels,
+        url_after: location.href,
+      },
+    };
+  }
+
+  // Dispatch full event sequence (modal button is React too).
+  const rect = confirmBtn.getBoundingClientRect();
+  const opts = { bubbles: true, cancelable: true, view: window, button: 0,
+                 clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+  try { confirmBtn.dispatchEvent(new PointerEvent('pointerover', opts)); } catch (_) {}
+  try { confirmBtn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
+  confirmBtn.dispatchEvent(new MouseEvent('mousedown', opts));
+  try { confirmBtn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
+  confirmBtn.dispatchEvent(new MouseEvent('mouseup', opts));
+  confirmBtn.dispatchEvent(new MouseEvent('click', opts));
+  try { confirmBtn.click(); } catch (_) {}
+
+  return {
+    ok: true, state: 'confirmed',
+    diag: { modal_state: 'confirmed', modal_button_labels: buttonLabels, clicked_button_html: (confirmBtn.outerHTML || '').slice(0, 200) },
+  };
+})()
+`;
+}
+
+/**
+ * Page-context verify script, run AFTER a reload of the profile URL.
  *
  * Returns `{ ok, state, reason?, diag? }`:
  *   ok: true,  state: 'followed'           → server confirms relation flipped
@@ -259,7 +392,7 @@ function buildVerifyFollowScript() {
   if (buttons.some((b) => FOLLOW_LABELS.includes(textOf(b)))) {
     return {
       ok: false, state: 'not-followed',
-      reason: 'After reload, server still shows 关注 — click did not take effect (likely React handler missed, modal blocked, or backend silently rejected).',
+      reason: 'After reload, server still shows 关注 — click reached the handler but server did not commit the follow (backend rejected, or modal-confirm step missed the actual confirm button).',
       diag: { url_after: location.href, scope_button_labels: labels },
     };
   }
@@ -276,7 +409,7 @@ cli({
     site: 'xiaohongshu',
     name: 'follow',
     access: 'write',
-    description: '关注小红书用户 (profile UI + reload-verify)',
+    description: '关注小红书用户 (profile UI + modal-handling + reload-verify)',
     domain: 'www.xiaohongshu.com',
     strategy: Strategy.COOKIE,
     navigateBefore: false,
@@ -309,8 +442,7 @@ cli({
                 throw new AuthRequiredError('www.xiaohongshu.com');
             }
 
-            // Step 1: locate + click. Failure here means we never even
-            // dispatched (no scope, no CTA) — surface immediately.
+            // Step 1: locate + click.
             const clickResult = requireActionResult(
                 await page.evaluate(buildClickScript()),
                 'click-action',
@@ -324,9 +456,26 @@ cli({
                 return [{ status: 'already-following', user_id: userId, url }];
             }
 
-            // Step 2: reload to force server-side relation state into the DOM,
+            // Step 2: handle any post-click confirmation modal. xhs pops one on
+            // some sessions; live diagnostics with `dialogs_after_click=1` plus
+            // a server that wasn't committing the follow proved the modal was
+            // intercepting the request. Idempotent — no-ops cleanly when no
+            // modal is up.
+            await page.wait({ time: MODAL_MOUNT_SETTLE_MS / 1000 });
+            const modalResult = requireActionResult(
+                await page.evaluate(buildHandleModalScript()),
+                'modal-action',
+            );
+            if (!modalResult.ok) {
+                const merged = { ...(clickResult.diag ?? {}), ...(modalResult.diag ?? {}) };
+                throw new CommandExecutionError(
+                    `xiaohongshu/follow ${modalResult.state}: ${modalResult.reason ?? 'modal step failed'}${formatDiagnostics(merged)}`,
+                );
+            }
+
+            // Step 3: reload to force server-side relation state into the DOM,
             // then verify. Authoritative — no relying on optimistic React flip.
-            await page.wait({ time: POST_CLICK_SETTLE_MS / 1000 });
+            await page.wait({ time: POST_CONFIRM_SETTLE_MS / 1000 });
             await page.goto(url);
             await page.wait({ time: RELOAD_SETTLE_MS / 1000 });
 
@@ -335,9 +484,11 @@ cli({
                 'verify-action',
             );
             if (!verifyResult.ok) {
-                // Stitch click-time diagnostics with verify-time diagnostics so
-                // the surfaced error is debuggable in one read.
-                const mergedDiag = { ...(clickResult.diag ?? {}), ...(verifyResult.diag ?? {}) };
+                const mergedDiag = {
+                    ...(clickResult.diag ?? {}),
+                    ...(modalResult.diag ?? {}),
+                    ...(verifyResult.diag ?? {}),
+                };
                 throw new CommandExecutionError(
                     `xiaohongshu/follow ${verifyResult.state}: ${verifyResult.reason ?? 'verification failed'}${formatDiagnostics(mergedDiag)}`,
                 );
@@ -355,6 +506,7 @@ cli({
 export const __test__ = {
     assertUserId,
     buildClickScript,
+    buildHandleModalScript,
     buildVerifyFollowScript,
     formatDiagnostics,
 };
