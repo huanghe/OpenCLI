@@ -52,7 +52,10 @@ import { normalizeXhsUserId } from './user-helpers.js';
 
 const PROFILE_SETTLE_MS = 2500;
 const MODAL_MOUNT_SETTLE_MS = 900;
-const POST_CONFIRM_SETTLE_MS = 1000;
+// Increased from 1000ms → 3000ms in v5. xhs's Vue follow handler may have a
+// debounce / next-tick before issuing the /api/sns/web/v1/user/follow POST;
+// reading the interceptor too early would miss it.
+const POST_CONFIRM_SETTLE_MS = 3000;
 const RELOAD_SETTLE_MS = 2500;
 const USER_ID_RE = /^[a-zA-Z0-9]{8,32}$/;
 
@@ -518,18 +521,34 @@ cli({
                 );
             }
             const parsedHref = new URL(hrefRaw);
+            // xhs's frequent-operation challenge redirects to
+            // /website-login/captcha?…&verifyBiz=461 (or similar). This is
+            // distinct from a login redirect: cookies are still valid, but
+            // the user has to solve a captcha in their main browser before
+            // any further follow attempts will succeed. We detect this
+            // upfront so batch callers can back off rather than slamming
+            // into a wall.
+            if (/\/website-login\/captcha(?:[/?#]|$)/i.test(parsedHref.pathname)) {
+                const verifyBiz = parsedHref.searchParams.get('verifyBiz') || '?';
+                throw new CommandExecutionError(
+                    `xiaohongshu/follow rate-limited: xhs redirected to captcha verification (verifyBiz=${verifyBiz}). ` +
+                    `Open https://www.xiaohongshu.com in your normal browser, solve the captcha that appears, then back off subsequent follows by ≥30s. UID ${userId}.`,
+                );
+            }
             if (/\/login(?:[/?#]|$)/i.test(parsedHref.pathname)) {
                 throw new AuthRequiredError('www.xiaohongshu.com');
             }
 
-            // Install a broad interceptor on /api/sns/web — captures every
-            // xhs API call during the click flow. Narrowing later by URL
-            // substring in the post-click summarizer. This is the definitive
-            // signal for click-actually-hit-handler vs click-missed.
+            // Install a capture-everything interceptor. Pattern '/' matches
+            // ANY URL containing a forward slash — i.e. every fetch/XHR. We
+            // narrow afterwards by URL substring in the summarizer. This is
+            // critical: an earlier '/api/sns' pattern would miss endpoints
+            // hosted on other subdomains (e.g. edith.xiaohongshu.com) or
+            // hosted under different paths.
             let interceptorReady = false;
             let interceptorInstallError = null;
             try {
-                await page.installInterceptor('/api/sns');
+                await page.installInterceptor('/');
                 interceptorReady = true;
             } catch (err) {
                 interceptorInstallError = String(err?.message ?? err);
@@ -549,12 +568,61 @@ cli({
                 return [{ status: 'already-following', user_id: userId, url }];
             }
 
-            // Step 2: deliver a trusted click on the tagged CTA via CDP. This
-            // bypasses xhs's isTrusted gating (page.evaluate-dispatched
-            // synthetic events are isTrusted=false and ignored).
+            // Step 2: hover preamble + trusted CTA click.
+            //
+            // Hover preamble: anti-bot systems often track whether a mouse
+            // moved over an element before the click. CDP page.click only
+            // dispatches mouseMoved at the click coordinate (single point).
+            // We add a multi-step mouse path from a far position → button to
+            // mimic real user cursor movement. Each step has a short
+            // sub-100ms gap to look natural.
+            //
+            // Bypasses page.click resolution so we have control over the
+            // sequence. We already tagged the element, so we just need its
+            // current rect via a quick getBoundingClientRect probe.
             let clickDispatchError = null;
             try {
-                await page.click(`[data-opencli-target="${CTA_TAG}"]`);
+                const rectRaw = unwrapEvaluateResult(await page.evaluate(`
+                    () => {
+                      const el = document.querySelector('[data-opencli-target="${CTA_TAG}"]');
+                      if (!el) return null;
+                      try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
+                      const r = el.getBoundingClientRect();
+                      return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
+                    }
+                `));
+                if (!rectRaw || typeof rectRaw !== 'object') {
+                    throw new Error('CTA rect probe returned null — element vanished between tag and click');
+                }
+                const cx = Math.round(rectRaw.x);
+                const cy = Math.round(rectRaw.y);
+
+                // Hover preamble: 5-step path from (40, 40) to (cx, cy).
+                if (typeof page.cdp === 'function') {
+                    const startX = 40, startY = 40;
+                    const steps = 5;
+                    for (let i = 1; i <= steps; i++) {
+                        const t = i / steps;
+                        const px = Math.round(startX + (cx - startX) * t);
+                        const py = Math.round(startY + (cy - startY) * t);
+                        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: px, y: py });
+                        // Short gap between moves — too long looks scripted,
+                        // too short and antibot may detect the burst.
+                        await new Promise((r) => setTimeout(r, 40));
+                    }
+                    // Settle on the button briefly before pressing — gives
+                    // any hover-state CSS / @mouseenter handlers time to
+                    // fire (some Vue components arm the click handler only
+                    // after :hover transitions complete).
+                    await new Promise((r) => setTimeout(r, 150));
+                    await page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1 });
+                    await new Promise((r) => setTimeout(r, 35));
+                    await page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1 });
+                } else {
+                    // Bridge doesn't expose page.cdp — fall back to plain
+                    // page.click (still CDP-trusted via tryNativeClick).
+                    await page.click(`[data-opencli-target="${CTA_TAG}"]`);
+                }
             } catch (err) {
                 clickDispatchError = String(err?.message ?? err);
             }
@@ -627,14 +695,23 @@ cli({
                     });
                 } catch (_) { /* swallow — diagnostic-only */ }
             }
+            // Build summary of ALL intercepted URLs (not just follows). When
+            // 0 follow requests are caught but other API calls are, that's a
+            // very different signal from 0 calls at all.
+            const interceptedSummary = allIntercepted.length > 0
+                ? allIntercepted
+                    .slice(0, 12)
+                    .map((e) => {
+                        const u = String(e?.url ?? '');
+                        return u.split('?')[0].slice(-90);
+                    })
+                    .join(' | ')
+                : null;
             const interceptDiag = {
                 intercepted_follow_count: interceptedFollows.length,
                 intercepted_follow_summary: summarizeInterceptedFollows(interceptedFollows)
-                    ?? (allIntercepted.length > 0
-                        ? `no-follow-match among ${allIntercepted.length} api calls; sample: ${allIntercepted
-                            .slice(0, 5)
-                            .map((e) => String(e?.url ?? '').split('?')[0].slice(-80))
-                            .join(' | ')}`
+                    ?? (interceptedSummary
+                        ? `no-follow-match among ${allIntercepted.length} captures; sample: ${interceptedSummary}`
                         : undefined),
                 interceptor_status: interceptorReady
                     ? `ready (captured ${allIntercepted.length} total)`
@@ -644,6 +721,17 @@ cli({
             // Step 5: reload + verify against fresh server state.
             await page.goto(url);
             await page.wait({ time: RELOAD_SETTLE_MS / 1000 });
+
+            // Reload may also land on the captcha challenge if xhs's
+            // rate-limit flips during the click flow. Check before verify.
+            const verifyHrefRaw = unwrapEvaluateResult(await page.evaluate('() => location.href'));
+            if (typeof verifyHrefRaw === 'string'
+                && /\/website-login\/captcha(?:[/?#]|$)/i.test(new URL(verifyHrefRaw).pathname || '')) {
+                throw new CommandExecutionError(
+                    `xiaohongshu/follow rate-limited at verify: xhs redirected the post-click reload to captcha. ` +
+                    `The follow click may have committed server-side — re-check this UID after solving the captcha in your browser. UID ${userId}.`,
+                );
+            }
 
             const verifyResult = requireActionResult(
                 await page.evaluate(buildVerifyFollowScript()),
