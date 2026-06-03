@@ -29977,7 +29977,7 @@
   {
     "site": "xiaohongshu",
     "name": "unfollow",
-    "description": "取消关注小红书用户 (profile UI + reload-verify)",
+    "description": "取消关注小红书用户 (CDP-trusted click + modal-handling + reload-verify)",
     "access": "write",
     "domain": "www.xiaohongshu.com",
     "strategy": "cookie",
