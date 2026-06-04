@@ -747,18 +747,17 @@ cli({
                     ...(verifyResult.diag ?? {}),
                 };
 
-                // Antibot fingerprint: trusted click DID reach the CTA, BUT
-                // no /api/sns/follow request fired, AND server still shows 关注
-                // post-reload. This is the textbook signature of xhs's Vue
-                // handler refusing to act on clicks from an instrumented
-                // (chrome.debugger-attached) Chrome session — the click is
-                // visibly trusted but the handler bails before making the
-                // network call. Not a fixable bug in this layer; surface a
-                // distinct, actionable error.
-                // Trusted click reached the page (doc-level listener is the
-                // reliable signal because Vue sometimes re-mounts the CTA
-                // between locate and click, orphaning element-level
-                // listeners).
+                // Defensive branch for a failure mode we have NOT actually
+                // observed in production once the captcha-redirect and
+                // rate-limit paths are detected upstream. Trigger:
+                //   trusted click reached the CTA (doc-level listener fires —
+                //   reliable even when Vue re-mounts the CTA mid-flow), AND
+                //   zero follow requests were intercepted ('/' captures all),
+                //   AND server still shows 关注 post-reload.
+                //
+                // If this fires, something genuinely new is going on — the
+                // diagnostic bundle is the actionable artifact. Don't read
+                // any specific cause into it.
                 const sawTrustedClick = docClickLog.some((e) => e.kind === 'click' && e.isTrusted === true)
                     || clickLog.some((e) => e.kind === 'click' && e.isTrusted === true);
                 if (
@@ -768,7 +767,8 @@ cli({
                     && sawTrustedClick
                 ) {
                     throw new CommandExecutionError(
-                        `xiaohongshu/follow blocked: trusted click reached the follow CTA, but xhs's frontend made no /api/sns follow request — almost certainly anti-automation detection on this Chrome profile (chrome.debugger attached / extension-driven). Follow this user manually in the xhs app or browser. UID ${userId}.${formatDiagnostics(mergedDiag)}`,
+                        `xiaohongshu/follow unobserved-failure: trusted click reached the CTA but zero follow API requests were captured AND server still shows 关注 post-reload. ` +
+                        `This is a previously-unseen failure mode — first try one manual follow in your browser to confirm the account isn't restricted, then file a bug at https://github.com/huanghe/OpenCLI/issues with this diagnostic attached. UID ${userId}.${formatDiagnostics(mergedDiag)}`,
                     );
                 }
 

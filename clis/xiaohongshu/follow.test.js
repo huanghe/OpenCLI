@@ -203,7 +203,7 @@ describe('xiaohongshu follow', () => {
             .rejects.toThrowError(/risk_verification.*滑动验证.*modal_state=risk.*modal_text/);
     });
 
-    it('surfaces the antibot-blocked signature when click is trusted but no follow API request fires', async () => {
+    it('surfaces an unobserved-failure error when trusted click reached the CTA but no follow API request fires', async () => {
         const page = makePage({
             urlCheck: profileUrl,
             locate: { ok: true, state: 'cta-tagged',
@@ -218,7 +218,7 @@ describe('xiaohongshu follow', () => {
             getInterceptedRequests: vi.fn().mockResolvedValue([]),       // zero intercepted /api/sns calls
         });
         await expect(getCommand().func(page, { 'user-id': validId }))
-            .rejects.toThrowError(/follow blocked.*no \/api\/sns follow request.*anti-automation/);
+            .rejects.toThrowError(/unobserved-failure.*zero follow API requests.*file a bug.*github\.com/);
     });
 
     it('throws CommandExecutionError for malformed evaluate payloads at each boundary', async () => {
