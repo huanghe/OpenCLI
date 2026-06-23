@@ -109,6 +109,7 @@ Run `opencli list` for the live registry.
 | **[arxiv](./browser/arxiv.md)**                   | `search` `paper`                                                                                                                               | 🌐 Public    |
 | **[dblp](./browser/dblp.md)**                     | `search` `author` `paper` `venue`                                                                                                              | 🌐 Public    |
 | **[pubmed](./browser/pubmed.md)**                 | `search` `article` `author` `citations` `related` `clinical-trial` `review` `mesh` `journal`                                                 | 🌐 Public    |
+| **[semanticscholar](./browser/semanticscholar.md)** | `paper` `citations` `recommendations` `search`                                                                                              | 🌐 Public    |
 | **[openreview](./browser/openreview.md)**         | `search` `venue` `author` `paper` `reviews`                                                                                                    | 🌐 Public    |
 | **[paperreview](./browser/paperreview.md)**       | `submit` `review` `feedback`                                                                                                                   | 🌐 Public    |
 | **[barchart](./browser/barchart.md)**             | `quote` `options` `greeks` `flow`                                                                                                              | 🌐 Public    |
@@ -138,6 +139,7 @@ Run `opencli list` for the live registry.
 | **[defillama](./browser/defillama.md)**           | `protocols` `protocol`                                                                                                                         | 🌐 Public    |
 | **[endoflife](./browser/endoflife.md)**           | `product`                                                                                                                                      | 🌐 Public    |
 | **[osv](./browser/osv.md)**                       | `vulnerability` `query`                                                                                                                        | 🌐 Public    |
+| **[github-trending](./browser/github-trending.md)** | `repos`                                                                                                                                       | 🌐 Public    |
 | **[goproxy](./browser/goproxy.md)**               | `module` `versions`                                                                                                                            | 🌐 Public    |
 | **[tvmaze](./browser/tvmaze.md)**                 | `search` `show`                                                                                                                                | 🌐 Public    |
 | **[rfc](./browser/rfc.md)**                       | `rfc`                                                                                                                                          | 🌐 Public    |

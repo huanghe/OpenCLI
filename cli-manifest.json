@@ -6124,6 +6124,13 @@
         "help": "Continue an existing ChatGPT conversation ID or /c/<id> URL"
       },
       {
+        "name": "project",
+        "type": "str",
+        "required": false,
+        "valueRequired": true,
+        "help": "Start a new chat inside a ChatGPT project ID or /g/g-p-<id> URL"
+      },
+      {
         "name": "wait",
         "type": "boolean",
         "default": true,
@@ -6267,6 +6274,13 @@
         "help": "Local image path to attach before prompting; comma-separated paths are supported"
       },
       {
+        "name": "project",
+        "type": "str",
+        "required": false,
+        "valueRequired": true,
+        "help": "Start image generation inside a ChatGPT project ID or /g/g-p-<id> URL"
+      },
+      {
         "name": "op",
         "type": "str",
         "required": false,
@@ -6353,6 +6367,13 @@
           "pro",
           "thinking"
         ]
+      },
+      {
+        "name": "project",
+        "type": "str",
+        "required": false,
+        "valueRequired": true,
+        "help": "Open a ChatGPT project ID or /g/g-p-<id> URL before switching intelligence level"
       }
     ],
     "columns": [
@@ -6373,13 +6394,83 @@
     "domain": "chatgpt.com",
     "strategy": "cookie",
     "browser": true,
-    "args": [],
+    "args": [
+      {
+        "name": "project",
+        "type": "str",
+        "required": false,
+        "valueRequired": true,
+        "help": "Start a new chat inside a ChatGPT project ID or /g/g-p-<id> URL"
+      }
+    ],
     "columns": [
       "Status"
     ],
     "type": "js",
     "modulePath": "chatgpt/new.js",
     "sourceFile": "chatgpt/new.js",
+    "navigateBefore": false,
+    "siteSession": "persistent"
+  },
+  {
+    "site": "chatgpt",
+    "name": "project-file-add",
+    "description": "Upload files to a ChatGPT project as project knowledge (not just conversation attachments)",
+    "access": "write",
+    "domain": "chatgpt.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "file",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Local file path(s) to upload; comma-separated paths are supported"
+      },
+      {
+        "name": "id",
+        "type": "str",
+        "required": true,
+        "help": "Project ID or /g/g-p-<id> URL"
+      }
+    ],
+    "columns": [
+      "Status",
+      "File"
+    ],
+    "type": "js",
+    "modulePath": "chatgpt/project-file-add.js",
+    "sourceFile": "chatgpt/project-file-add.js",
+    "navigateBefore": false,
+    "siteSession": "persistent"
+  },
+  {
+    "site": "chatgpt",
+    "name": "project-list",
+    "description": "List visible ChatGPT projects from the sidebar",
+    "access": "read",
+    "domain": "chatgpt.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Max projects to show"
+      }
+    ],
+    "columns": [
+      "Index",
+      "Id",
+      "Title",
+      "Url"
+    ],
+    "type": "js",
+    "modulePath": "chatgpt/project-list.js",
+    "sourceFile": "chatgpt/project-list.js",
     "navigateBefore": false,
     "siteSession": "persistent"
   },
@@ -6440,6 +6531,13 @@
         "required": false,
         "valueRequired": true,
         "help": "Continue an existing ChatGPT conversation ID or /c/<id> URL"
+      },
+      {
+        "name": "project",
+        "type": "str",
+        "required": false,
+        "valueRequired": true,
+        "help": "Start a new chat inside a ChatGPT project ID or /g/g-p-<id> URL"
       }
     ],
     "columns": [
@@ -14100,6 +14198,51 @@
     "sourceFile": "github/auth.js",
     "navigateBefore": false,
     "siteSession": "persistent"
+  },
+  {
+    "site": "github-trending",
+    "name": "repos",
+    "description": "GitHub Trending repositories (public, no login). Filter by --language and --since.",
+    "access": "read",
+    "domain": "github.com",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "since",
+        "type": "string",
+        "default": "daily",
+        "required": false,
+        "help": "Time range: daily / weekly / monthly"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Filter by programming language slug, e.g. python, rust, \"c++\""
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 25,
+        "required": false,
+        "help": "Number of repositories to return (max 25)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "repo",
+      "description",
+      "language",
+      "stars",
+      "forks",
+      "starsSince",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "github-trending/repos.js",
+    "sourceFile": "github-trending/repos.js"
   },
   {
     "site": "google",
@@ -28878,6 +29021,160 @@
     "sourceFile": "rubygems/search.js"
   },
   {
+    "site": "semanticscholar",
+    "name": "citations",
+    "description": "List papers that cite a Semantic Scholar paper (paginated)",
+    "access": "read",
+    "domain": "api.semanticscholar.org",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "id",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "paperId (40-char hex), DOI, arXiv id, or prefixed id"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Max citing papers (1-1000, single Semantic Scholar page)"
+      },
+      {
+        "name": "offset",
+        "type": "int",
+        "default": 0,
+        "required": false,
+        "help": "Page offset (0-based)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "paperId",
+      "doi",
+      "title",
+      "year",
+      "firstAuthor",
+      "citationCount",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "semanticscholar/citations.js",
+    "sourceFile": "semanticscholar/citations.js"
+  },
+  {
+    "site": "semanticscholar",
+    "name": "paper",
+    "description": "Semantic Scholar paper detail (citation graph + AI tldr) by paperId, DOI, or arXiv id",
+    "access": "read",
+    "domain": "api.semanticscholar.org",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "id",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "paperId (40-char hex), DOI, arXiv id, or prefixed id (e.g. \"ARXIV:1706.03762\", \"PMID:12345\")"
+      }
+    ],
+    "columns": [
+      "paperId",
+      "doi",
+      "title",
+      "year",
+      "firstAuthor",
+      "citationCount",
+      "influentialCitationCount",
+      "referenceCount",
+      "tldr",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "semanticscholar/paper.js",
+    "sourceFile": "semanticscholar/paper.js"
+  },
+  {
+    "site": "semanticscholar",
+    "name": "recommendations",
+    "description": "Semantic Scholar AI-curated related papers for a paperId, DOI, or arXiv id",
+    "access": "read",
+    "domain": "api.semanticscholar.org",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "id",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "paperId (40-char hex), DOI, arXiv id, or prefixed id"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 10,
+        "required": false,
+        "help": "Max recommendations (1-500)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "paperId",
+      "doi",
+      "title",
+      "year",
+      "firstAuthor",
+      "citationCount",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "semanticscholar/recommendations.js",
+    "sourceFile": "semanticscholar/recommendations.js"
+  },
+  {
+    "site": "semanticscholar",
+    "name": "search",
+    "description": "Search Semantic Scholar papers by free text",
+    "access": "read",
+    "domain": "api.semanticscholar.org",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "query",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Search text (e.g. \"attention is all you need\", \"diffusion model\")"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Max papers (1-100, single Semantic Scholar page)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "paperId",
+      "doi",
+      "title",
+      "year",
+      "firstAuthor",
+      "citationCount",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "semanticscholar/search.js",
+    "sourceFile": "semanticscholar/search.js"
+  },
+  {
     "site": "sinablog",
     "name": "article",
     "description": "获取新浪博客单篇文章详情",
@@ -42716,6 +43013,80 @@
   },
   {
     "site": "zhihu",
+    "name": "followers",
+    "description": "知乎某用户的粉丝列表",
+    "access": "read",
+    "domain": "www.zhihu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User url_token or people URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Number of followers to return (max 1000)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "name",
+      "url_token",
+      "headline",
+      "followers",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "zhihu/followers.js",
+    "sourceFile": "zhihu/followers.js",
+    "navigateBefore": "https://www.zhihu.com"
+  },
+  {
+    "site": "zhihu",
+    "name": "following",
+    "description": "知乎某用户关注的人列表",
+    "access": "read",
+    "domain": "www.zhihu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User url_token or people URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Number of followees to return (max 1000)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "name",
+      "url_token",
+      "headline",
+      "followers",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "zhihu/following.js",
+    "sourceFile": "zhihu/following.js",
+    "navigateBefore": "https://www.zhihu.com"
+  },
+  {
+    "site": "zhihu",
     "name": "hot",
     "description": "知乎热榜",
     "access": "read",
@@ -42808,6 +43179,45 @@
     "navigateBefore": false,
     "siteSession": "persistent",
     "defaultWindowMode": "foreground"
+  },
+  {
+    "site": "zhihu",
+    "name": "pins",
+    "description": "知乎某用户的想法（短内容）列表",
+    "access": "read",
+    "domain": "www.zhihu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User url_token or people URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Number of pins to return (max 1000)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "excerpt",
+      "type",
+      "likes",
+      "comments",
+      "reposts",
+      "created",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "zhihu/pins.js",
+    "sourceFile": "zhihu/pins.js",
+    "navigateBefore": "https://www.zhihu.com"
   },
   {
     "site": "zhihu",
@@ -42935,6 +43345,113 @@
     "type": "js",
     "modulePath": "zhihu/search.js",
     "sourceFile": "zhihu/search.js",
+    "navigateBefore": "https://www.zhihu.com"
+  },
+  {
+    "site": "zhihu",
+    "name": "user",
+    "description": "知乎用户主页资料（粉丝/关注/回答/文章/获赞数）",
+    "access": "read",
+    "domain": "www.zhihu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User url_token or people URL, e.g. wen-jie-16-47"
+      }
+    ],
+    "columns": [
+      "url_token",
+      "name",
+      "headline",
+      "followers",
+      "following",
+      "answers",
+      "articles",
+      "voteup",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "zhihu/user.js",
+    "sourceFile": "zhihu/user.js",
+    "navigateBefore": "https://www.zhihu.com"
+  },
+  {
+    "site": "zhihu",
+    "name": "user-answers",
+    "description": "知乎某用户的回答列表",
+    "access": "read",
+    "domain": "www.zhihu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User url_token or people URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Number of answers to return (max 1000)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "question",
+      "votes",
+      "comments",
+      "created",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "zhihu/user-answers.js",
+    "sourceFile": "zhihu/user-answers.js",
+    "navigateBefore": "https://www.zhihu.com"
+  },
+  {
+    "site": "zhihu",
+    "name": "user-articles",
+    "description": "知乎某用户的文章/专栏列表",
+    "access": "read",
+    "domain": "www.zhihu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User url_token or people URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Number of articles to return (max 1000)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "title",
+      "votes",
+      "comments",
+      "created",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "zhihu/user-articles.js",
+    "sourceFile": "zhihu/user-articles.js",
     "navigateBefore": "https://www.zhihu.com"
   },
   {
