@@ -630,7 +630,9 @@ describe('background tab isolation', () => {
     const result = await mod.__test__.handleTabs({ id: '2', action: 'tabs', op: 'new', url: 'https://new.example', session: adapterKey('twitter') }, adapterKey('twitter'));
 
     expect(result.ok).toBe(true);
-    expect(create).toHaveBeenCalledWith({ windowId: 1, url: 'https://new.example', active: true });
+    // Background-mode (adapter) windows do not activate the new tab — see the
+    // macOS focus-steal mitigation in background.ts.
+    expect(create).toHaveBeenCalledWith({ windowId: 1, url: 'https://new.example', active: false });
   });
 
   it('reuses the initial container tab for first tab-new lease instead of leaving a blank tab', async () => {
@@ -994,7 +996,7 @@ describe('background tab isolation', () => {
     }));
     expect(maxInFlight).toBe(2);
     expect(chrome.windows.create).toHaveBeenCalledTimes(1);
-    expect(create).toHaveBeenCalledWith({ windowId: 1, url: 'about:blank', active: true });
+    expect(create).toHaveBeenCalledWith({ windowId: 1, url: 'about:blank', active: false });
   });
 
   it('releases owned sessions without closing the shared container', async () => {

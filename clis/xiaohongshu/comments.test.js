@@ -148,6 +148,59 @@ describe('xiaohongshu comments', () => {
             limit: 5,
         })).resolves.toEqual([]);
     });
+    it('fails typed for malformed comments payloads instead of returning success-shaped output', async () => {
+        const page = createPageMock({ loginWall: false, results: { rows: [] } });
+        await expect(command.func(page, {
+            'note-id': 'https://www.xiaohongshu.com/search_result/abc123?xsec_token=tok',
+            limit: 5,
+        })).rejects.toMatchObject({
+            code: 'COMMAND_EXEC',
+            message: expect.stringContaining('malformed comments payload'),
+        });
+    });
+    it('fails typed for malformed comment image payloads', async () => {
+        const page = createPageMock({
+            loginWall: false,
+            results: [
+                { author: 'Alice', text: 'Great note!', likes: 10, time: '2024-01-01', is_reply: false, reply_to: '', images: 'https://sns-img-qc.xhscdn.com/comment.jpg' },
+            ],
+        });
+        await expect(command.func(page, {
+            'note-id': 'https://www.xiaohongshu.com/search_result/abc123?xsec_token=tok',
+            limit: 5,
+        })).rejects.toMatchObject({
+            code: 'COMMAND_EXEC',
+            message: expect.stringContaining('malformed comment row images'),
+        });
+    });
+    it('fails typed for non-stable comment image URLs', async () => {
+        const page = createPageMock({
+            loginWall: false,
+            results: [
+                { author: 'Alice', text: 'Great note!', likes: 10, time: '2024-01-01', is_reply: false, reply_to: '', images: ['data:image/png;base64,AAAA'] },
+            ],
+        });
+        await expect(command.func(page, {
+            'note-id': 'https://www.xiaohongshu.com/search_result/abc123?xsec_token=tok',
+            limit: 5,
+        })).rejects.toMatchObject({
+            code: 'COMMAND_EXEC',
+            message: expect.stringContaining('malformed comment row image URL'),
+        });
+    });
+    it('preserves normalized valid comment image URLs in output rows', async () => {
+        const page = createPageMock({
+            loginWall: false,
+            results: [
+                { author: 'Alice', text: 'Great note!', likes: 10, time: '2024-01-01', is_reply: false, reply_to: '', images: [' https://sns-img-qc.xhscdn.com/comment.jpg '] },
+            ],
+        });
+        const rows = await command.func(page, {
+            'note-id': 'https://www.xiaohongshu.com/search_result/abc123?xsec_token=tok',
+            limit: 5,
+        });
+        expect(rows[0]).toMatchObject({ images: ['https://sns-img-qc.xhscdn.com/comment.jpg'] });
+    });
     it('uses condition-based comment scrolling instead of a fixed blind loop', async () => {
         const page = createPageMock({ loginWall: false, results: [] });
         await command.func(page, {
@@ -236,6 +289,24 @@ describe('xiaohongshu comments', () => {
         `);
 
         expect(data.results[0]).toMatchObject({ author: 'Alice', text: 'Great note', images: ['https://sns-img-qc.xhscdn.com/comment-photo.jpg'] });
+    });
+    it('does not project author badges or action icons as comment images', async () => {
+        const data = await runCommentsExtract(`
+          <main>
+            <section class="parent-comment">
+              <div class="comment-item">
+                <div class="author-wrapper">
+                  <span class="name">Alice</span>
+                  <img class="author-badge" src="https://sns-img-qc.xhscdn.com/badge.png" />
+                </div>
+                <div class="content">No attached photo</div>
+                <button class="like-action"><img src="https://sns-img-qc.xhscdn.com/like-icon.png" /></button>
+              </div>
+            </section>
+          </main>
+        `);
+
+        expect(data.results[0]).toMatchObject({ author: 'Alice', text: 'No attached photo', images: [] });
     });
     it('extracts authorHrefRaw from /user/profile/ anchor wrapping the name', async () => {
         const data = await runCommentsExtract(`
