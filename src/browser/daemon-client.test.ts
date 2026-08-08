@@ -2,11 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BrowserCommandError,
+  clearDaemonRunContext,
   fetchDaemonStatus,
   getDaemonHealth,
+  isUnknownOutcomeError,
   requestDaemonShutdown,
   sendCommand,
+  setDaemonCommandTimeoutSeconds,
+  setDaemonRunContext,
 } from './daemon-client.js';
+import { SessionBusyError } from '../errors.js';
 import * as daemonLifecycle from './daemon-lifecycle.js';
 
 describe('daemon-client', () => {
@@ -17,6 +22,7 @@ describe('daemon-client', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+    setDaemonRunContext(null);
   });
 
   it('fetchDaemonStatus sends the shared status request and returns parsed data', async () => {
@@ -172,6 +178,27 @@ describe('daemon-client', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('tolerates OPENCLI_DAEMON_PORT when it equals the default port (launchers inject it, #2068)', async () => {
+    vi.resetModules();
+    vi.stubEnv('OPENCLI_DAEMON_PORT', '19825');
+    const status = {
+      ok: true,
+      pid: 1,
+      uptime: 0,
+      extensionConnected: true,
+      pending: 0,
+      memoryMB: 1,
+      port: 19825,
+    };
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(status),
+    } as Response);
+
+    const freshClient = await import('./daemon-client.js');
+    await expect(freshClient.fetchDaemonStatus()).resolves.toEqual(status);
+  });
+
   it('sendCommand includes the current pid in generated command ids', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_763_000_000_000);
     vi.mocked(fetch).mockResolvedValue({
@@ -193,7 +220,76 @@ describe('daemon-client', () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
-  it('sendCommand forwards OPENCLI_PROFILE as command contextId', async () => {
+  it('attaches the run context (runId/command/access) to every command as a lease heartbeat', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: true, data: 'ok' }),
+    } as Response);
+    setDaemonRunContext({ runId: 'run_4242_1_a', command: 'chatgpt ask', access: 'write' });
+
+    await sendCommand('exec', { code: '1 + 1', surface: 'adapter', session: 'site:chatgpt', siteSession: 'persistent' });
+    await sendCommand('exec', { code: '2 + 2', surface: 'adapter', session: 'site:chatgpt', siteSession: 'persistent' });
+
+    for (const call of vi.mocked(fetch).mock.calls) {
+      const body = JSON.parse(String(call[1]?.body)) as { runId?: string; command?: string; access?: string };
+      expect(body.runId).toBe('run_4242_1_a');
+      expect(body.command).toBe('chatgpt ask');
+      expect(body.access).toBe('write');
+    }
+  });
+
+  it('clearDaemonRunContext only clears the context that still belongs to the runId', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: true, data: 'ok' }),
+    } as Response);
+    setDaemonRunContext({ runId: 'run_4242_1_a', command: 'chatgpt ask', access: 'write' });
+
+    // A stale run's deferred cleanup must not strip a different owner's context.
+    clearDaemonRunContext('run_9999_2_b');
+    await sendCommand('exec', { code: '1 + 1', surface: 'adapter', session: 'site:chatgpt', siteSession: 'persistent' });
+    const kept = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)) as { runId?: string };
+    expect(kept.runId).toBe('run_4242_1_a');
+
+    clearDaemonRunContext('run_4242_1_a');
+    await sendCommand('exec', { code: '2 + 2', surface: 'adapter', session: 'site:chatgpt', siteSession: 'persistent' });
+    const cleared = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body)) as { runId?: string };
+    expect(cleared.runId).toBeUndefined();
+  });
+
+  it('omits run-context fields when no run context is set (read/ephemeral commands)', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: true, data: 'ok' }),
+    } as Response);
+
+    await sendCommand('exec', { code: '1 + 1' });
+
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)) as { runId?: string; access?: string };
+    expect(body.runId).toBeUndefined();
+    expect(body.access).toBeUndefined();
+  });
+
+  it('throws a terminal SessionBusyError on a session_busy response without retrying', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      status: 409,
+      json: () => Promise.resolve({
+        id: 'server',
+        ok: false,
+        errorCode: 'session_busy',
+        error: 'Session "site:chatgpt" is busy: chatgpt ask (pid 111) has been driving it for 42s.',
+        errorHint: 'Wait for it to finish, or stop it with `kill 111` if it is stuck. Read-only commands are not blocked.',
+      }),
+    } as Response);
+
+    await expect(
+      sendCommand('exec', { code: '1 + 1', surface: 'adapter', session: 'site:chatgpt', siteSession: 'persistent' }),
+    ).rejects.toBeInstanceOf(SessionBusyError);
+    // Terminal: no ensure-bridge / re-dispatch — exactly one request went out.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendCommand forwards OPENCLI_PROFILE as a hard contextId requirement', async () => {
     vi.stubEnv('OPENCLI_PROFILE', 'work');
     vi.spyOn(Date, 'now').mockReturnValue(1_763_000_000_000);
     vi.mocked(fetch).mockResolvedValue({
@@ -203,8 +299,36 @@ describe('daemon-client', () => {
 
     await sendCommand('exec', { code: '1 + 1' });
 
-    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)) as { contextId?: string };
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)) as { contextId?: string; preferredContextId?: string };
     expect(body.contextId).toBe('work');
+    expect(body.preferredContextId).toBeUndefined();
+  });
+
+  it('sendCommand forwards the config default as a soft preferredContextId, not a requirement', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-dc-profile-'));
+    fs.writeFileSync(
+      path.join(configDir, 'browser-profiles.json'),
+      JSON.stringify({ version: 1, aliases: {}, defaultContextId: 'zvypsyje' }),
+    );
+    vi.stubEnv('OPENCLI_CONFIG_DIR', configDir);
+    vi.stubEnv('OPENCLI_PROFILE', '');
+    try {
+      vi.mocked(fetch).mockResolvedValue({
+        status: 200,
+        json: () => Promise.resolve({ id: 'server', ok: true, data: 'ok' }),
+      } as Response);
+
+      await sendCommand('exec', { code: '1 + 1' });
+
+      const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)) as { contextId?: string; preferredContextId?: string };
+      expect(body.preferredContextId).toBe('zvypsyje');
+      expect(body.contextId).toBeUndefined();
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
   });
 
   it('sendCommand uses explicit windowMode before OPENCLI_WINDOW env fallback', async () => {
@@ -220,14 +344,13 @@ describe('daemon-client', () => {
     expect(body.windowMode).toBe('background');
   });
 
-  it('sendCommand retries with a new id when daemon reports a duplicate pending id', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(1_763_000_000_123);
+  it('sendCommand retries executor-transient errors ONCE with a NEW id (re-execution is a new logical attempt)', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce({
         ok: false,
-        status: 409,
-        json: () => Promise.resolve({ ok: false, error: 'Duplicate command id already pending; retry' }),
+        status: 200,
+        json: () => Promise.resolve({ id: 'server', ok: false, error: 'attach failed: interference', errorCode: 'attach_failed' }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
@@ -243,6 +366,21 @@ describe('daemon-client', () => {
       return body.id;
     });
     expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  it('sendCommand does NOT retry mid-execution failures (detached_mid_command) — outcome is unknown', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: false, error: 'Detached while handling command', errorCode: 'detached_mid_command' }),
+    } as Response);
+
+    await expect(sendCommand('exec', { code: 'submit()' })).rejects.toMatchObject({
+      name: 'BrowserCommandError',
+      code: 'detached_mid_command',
+    } satisfies Partial<BrowserCommandError>);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('sendCommand does not retry command_result_unknown even when the message looks transient', async () => {
@@ -267,9 +405,8 @@ describe('daemon-client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('sendCommand runs full bridge ensure on a pre-dispatch failure, then resends with a fresh id', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(1_763_000_000_321);
-    const ensureSpy = vi.spyOn(daemonLifecycle, 'ensureBrowserBridgeReady').mockResolvedValue({
+  function mockEnsureReady(extensionVersion?: string) {
+    return vi.spyOn(daemonLifecycle, 'ensureBrowserBridgeReady').mockResolvedValue({
       health: {
         state: 'ready',
         status: {
@@ -277,6 +414,7 @@ describe('daemon-client', () => {
           pid: 1,
           uptime: 1,
           extensionConnected: true,
+          ...(extensionVersion && { extensionVersion }),
           pending: 0,
           memoryMB: 0,
           port: 19825,
@@ -284,6 +422,11 @@ describe('daemon-client', () => {
       },
       spawnedProcess: null,
     });
+  }
+
+  it('sendCommand runs full bridge ensure on a pre-dispatch failure, then resends the SAME id', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_763_000_000_321);
+    const ensureSpy = mockEnsureReady('1.0.22');
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce({
@@ -306,28 +449,17 @@ describe('daemon-client', () => {
     expect(ensureSpy).toHaveBeenCalledWith(expect.objectContaining({ contextId: 'work', verbose: false }));
     const ids = fetchMock.mock.calls.map(([, init]) => (JSON.parse(String(init?.body)) as { id: string }).id);
     expect(ids).toHaveLength(2);
-    expect(ids[0]).not.toBe(ids[1]);
+    // Transport retries keep the id stable so the executor's journal can dedupe.
+    expect(ids[0]).toBe(ids[1]);
   });
 
-  it('sendCommand runs full bridge ensure on a local TypeError before resending', async () => {
-    const ensureSpy = vi.spyOn(daemonLifecycle, 'ensureBrowserBridgeReady').mockResolvedValue({
-      health: {
-        state: 'ready',
-        status: {
-          ok: true,
-          pid: 1,
-          uptime: 1,
-          extensionConnected: true,
-          pending: 0,
-          memoryMB: 0,
-          port: 19825,
-        },
-      },
-      spawnedProcess: null,
-    });
+  it('sendCommand runs full bridge ensure on a pre-connect TypeError (ECONNREFUSED) before resending', async () => {
+    const ensureSpy = mockEnsureReady();
+    const refused = new TypeError('fetch failed');
+    (refused as { cause?: unknown }).cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:19825'), { code: 'ECONNREFUSED' });
     const fetchMock = vi.mocked(fetch);
     fetchMock
-      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockRejectedValueOnce(refused)
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -338,6 +470,92 @@ describe('daemon-client', () => {
 
     expect(ensureSpy).toHaveBeenCalledWith(expect.objectContaining({ verbose: false }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('sendCommand retries a post-connect drop with the SAME id when the extension journals ids', async () => {
+    mockEnsureReady('1.0.22');
+    const reset = new TypeError('fetch failed');
+    (reset as { cause?: unknown }).cause = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockRejectedValueOnce(reset)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: 'server', ok: true, data: 'replayed' }),
+      } as Response);
+
+    await expect(sendCommand('navigate', { url: 'https://example.com' })).resolves.toBe('replayed');
+
+    const ids = fetchMock.mock.calls.map(([, init]) => (JSON.parse(String(init?.body)) as { id: string }).id);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+  });
+
+  it('sendCommand does NOT resend a post-connect drop when the extension predates the journal', async () => {
+    const ensureSpy = mockEnsureReady('1.0.21');
+    const reset = new TypeError('fetch failed');
+    (reset as { cause?: unknown }).cause = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    vi.mocked(fetch).mockRejectedValueOnce(reset);
+
+    await expect(sendCommand('navigate', { url: 'https://example.com' })).rejects.toMatchObject({
+      name: 'BrowserCommandError',
+      code: 'command_result_unknown',
+    } satisfies Partial<BrowserCommandError>);
+
+    expect(ensureSpy).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendCommand retries daemon_shutting_down with the same id when the extension journals ids', async () => {
+    mockEnsureReady('1.0.22');
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ ok: false, errorCode: 'daemon_shutting_down', error: 'Daemon shutting down before the command completed.' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: 'server', ok: true, data: 'replayed' }),
+      } as Response);
+
+    await expect(sendCommand('navigate', { url: 'https://example.com' })).resolves.toBe('replayed');
+
+    const ids = fetchMock.mock.calls.map(([, init]) => (JSON.parse(String(init?.body)) as { id: string }).id);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+  });
+
+  it('sendCommand does NOT resend daemon_shutting_down on a legacy extension — outcome unknown', async () => {
+    mockEnsureReady('1.0.21');
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ ok: false, errorCode: 'daemon_shutting_down', error: 'Daemon shutting down before the command completed.' }),
+    } as Response);
+
+    await expect(sendCommand('navigate', { url: 'https://example.com' })).rejects.toMatchObject({
+      name: 'BrowserCommandError',
+      code: 'command_result_unknown',
+    } satisfies Partial<BrowserCommandError>);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sendCommand does NOT resend a bare TypeError on a legacy extension', async () => {
+    const ensureSpy = mockEnsureReady('1.0.15');
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    await expect(sendCommand('exec', { code: 'window.__mutate = true' })).rejects.toMatchObject({
+      name: 'BrowserCommandError',
+      code: 'command_result_unknown',
+    } satisfies Partial<BrowserCommandError>);
+
+    expect(ensureSpy).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('sendCommand does NOT wait when the bridge reports profile_required', async () => {
@@ -363,6 +581,84 @@ describe('daemon-client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('sendCommand plumbs the default command timeout into body.timeout', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: true, data: 1 }),
+    } as Response);
+
+    await expect(sendCommand('exec', { code: '1' })).resolves.toBe(1);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { timeout?: number };
+    expect(body.timeout).toBe(120);
+  });
+
+  it('sendCommand extends body.timeout past an extension-side timeoutMs (wait-download)', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: true, data: { downloaded: true } }),
+    } as Response);
+
+    await sendCommand('wait-download', { timeoutMs: 240_000 });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { timeout?: number };
+    // 240s extension wait + 15s margin
+    expect(body.timeout).toBe(255);
+  });
+
+  it('setDaemonCommandTimeoutSeconds raises the transport deadline for the user --timeout', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: 'server', ok: true, data: 1 }),
+    } as Response);
+
+    setDaemonCommandTimeoutSeconds(300);
+    try {
+      await sendCommand('exec', { code: '1' });
+    } finally {
+      setDaemonCommandTimeoutSeconds(null);
+    }
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { timeout?: number };
+    expect(body.timeout).toBe(300);
+  });
+
+  it('client HTTP abort fires only after the daemon timer margin (timeout*1000 + 10s)', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.mocked(fetch);
+      let aborted = false;
+      fetchMock.mockImplementationOnce((_url, init) => new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+        });
+      }));
+
+      const pending = sendCommand('exec', { code: '1' });
+      const assertion = expect(pending).rejects.toMatchObject({
+        name: 'BrowserCommandError',
+        code: 'command_result_unknown',
+      } satisfies Partial<BrowserCommandError>);
+
+      // Just before the margin the daemon still owns the deadline — no abort.
+      await vi.advanceTimersByTimeAsync(120_000 + 9_999);
+      expect(aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(aborted).toBe(true);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('sendCommand surfaces an AbortError as command_result_unknown without ensure or resend', async () => {
     const ensureSpy = vi.spyOn(daemonLifecycle, 'ensureBrowserBridgeReady');
     const abortErr = new Error('The operation was aborted');
@@ -376,5 +672,25 @@ describe('daemon-client', () => {
 
     expect(ensureSpy).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('isUnknownOutcomeError', () => {
+  it('is true for each unknown-outcome code', () => {
+    for (const code of ['command_result_unknown', 'command_lost', 'result_evicted']) {
+      expect(isUnknownOutcomeError(new BrowserCommandError('unknown', code))).toBe(true);
+    }
+  });
+
+  it('is false for an ordinary failure code and for a success (no error)', () => {
+    expect(isUnknownOutcomeError(new BrowserCommandError('boom', 'attach_failed'))).toBe(false);
+    expect(isUnknownOutcomeError(new Error('plain failure'))).toBe(false);
+    expect(isUnknownOutcomeError(undefined)).toBe(false);
+    expect(isUnknownOutcomeError(null)).toBe(false);
+  });
+
+  it('unwraps an unknown-outcome error nested in a cause chain', () => {
+    const wrapped = new Error('adapter failed', { cause: new BrowserCommandError('lost', 'command_lost') });
+    expect(isUnknownOutcomeError(wrapped)).toBe(true);
   });
 });
