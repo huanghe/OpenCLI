@@ -7312,9 +7312,8 @@
       {
         "name": "model",
         "type": "str",
-        "default": "sonnet",
         "required": false,
-        "help": "Model to use: sonnet, opus, or haiku",
+        "help": "Switch to sonnet, opus, or haiku before sending. Omit to keep the current selection.",
         "choices": [
           "sonnet",
           "opus",
@@ -8057,6 +8056,12 @@
         "required": true,
         "positional": true,
         "help": "Text, command (e.g. /review), or skill (e.g. $imagegen)"
+      },
+      {
+        "name": "pick",
+        "type": "str",
+        "required": false,
+        "help": "Picker option label to select when a slash command opens the picker (e.g. \"Review Agent\")"
       },
       {
         "name": "project",
