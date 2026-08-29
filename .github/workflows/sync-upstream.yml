@@ -1,0 +1,171 @@
+# 自动同步上游 jackwener/OpenCLI
+#
+# 每天定时把上游 main 合并进本 fork 的 main：
+#   - 无冲突且验证通过 → 直接推送 main
+#   - 有冲突，或验证不通过 → 开 PR 交人工处理，并让本次运行标红提醒
+#
+# 需要仓库 Secret `SYNC_TOKEN`（PAT，勾选 repo + workflow），原因有三：
+#   1. 默认的 GITHUB_TOKEN 不允许推送 .github/workflows/ 下的改动，而上游经常
+#      改 CI 配置，用它会在这类同步上必然失败；
+#   2. 本仓库 Actions 设置未开启「允许创建 PR」，冲突兜底路径需要 PAT；
+#   3. GITHUB_TOKEN 推送不会触发其它工作流，用 PAT 推送后 CI 才会在 main 上跑。
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 20 * * *' # UTC 20:00 = 北京时间次日 04:00
+  workflow_dispatch:
+    inputs:
+      always_pr:
+        description: '即使无冲突也走 PR，不直接推 main'
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  UPSTREAM_URL: https://github.com/jackwener/OpenCLI.git
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验 SYNC_TOKEN 是否已配置
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::error::缺少 Secret SYNC_TOKEN。请创建一个勾选 repo + workflow 的 PAT，并在 Settings → Secrets and variables → Actions 中添加为 SYNC_TOKEN。"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: 拉取上游并计算差距
+        id: fetch
+        run: |
+          git remote add upstream "$UPSTREAM_URL" 2>/dev/null || git remote set-url upstream "$UPSTREAM_URL"
+          git fetch upstream main
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "tip=$(git rev-parse --short upstream/main)" >> "$GITHUB_OUTPUT"
+          echo "branch=sync/upstream-$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "落后上游 $behind 个提交"
+          if [ "$behind" != "0" ]; then
+            echo '### 待同步的上游提交' >> "$GITHUB_STEP_SUMMARY"
+            git log --oneline HEAD..upstream/main >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 尝试合并
+        id: merge
+        if: steps.fetch.outputs.behind != '0'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git merge --no-edit -m "chore: sync upstream jackwener/OpenCLI through ${{ steps.fetch.outputs.tip }}" upstream/main; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "conflict=true"
+              echo "files<<CONFLICT_EOF"
+              git diff --name-only --diff-filter=U
+              echo "CONFLICT_EOF"
+            } >> "$GITHUB_OUTPUT"
+            git merge --abort
+          fi
+
+      # ── 无冲突：重建产物 → 跑与 CI 同口径的验证 → 推 main ──
+
+      - name: 安装依赖
+        if: steps.merge.outputs.conflict == 'false'
+        run: npm ci
+
+      - name: 安装 extension 依赖
+        if: steps.merge.outputs.conflict == 'false'
+        run: npm ci
+        working-directory: extension
+
+      - name: 重建 extension 产物
+        if: steps.merge.outputs.conflict == 'false'
+        run: npm run build
+        working-directory: extension
+
+      - name: 重建根产物并提交漂移
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          npm run build
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "chore: rebuild extension dist / cli-manifest after sync"
+            echo "产物有漂移，已重新提交"
+          fi
+
+      # 与 ci.yml 在 push 事件下的门槛对齐：typecheck + unit/extension + adapter
+      # + 两个静态守卫。cli-manifest 的漂移已在上一步重建并提交。
+      - name: 验证
+        id: verify
+        if: steps.merge.outputs.conflict == 'false'
+        continue-on-error: true
+        run: |
+          npx tsc --noEmit
+          npx vitest run --project unit --project extension
+          npm run test:adapter
+          npm run check:silent-column-drop
+          npm run check:typed-error-lint
+
+      - name: 推送 main
+        if: steps.merge.outputs.conflict == 'false' && steps.verify.outcome == 'success' && inputs.always_pr != true
+        run: |
+          git push origin HEAD:main
+          echo "✅ 已同步到 ${{ steps.fetch.outputs.tip }} 并推送 main" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 兜底：冲突 / 验证失败 / 手动要求走 PR ──
+
+      - name: 开 PR 交人工处理
+        if: |
+          steps.fetch.outputs.behind != '0' &&
+          (steps.merge.outputs.conflict == 'true' ||
+           steps.verify.outcome == 'failure' ||
+           inputs.always_pr == true)
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          # 经环境变量传递，避免上游文件名/分支名被当作 shell 代码注入
+          BRANCH: ${{ steps.fetch.outputs.branch }}
+          TIP: ${{ steps.fetch.outputs.tip }}
+          CONFLICT: ${{ steps.merge.outputs.conflict }}
+          CONFLICT_FILES: ${{ steps.merge.outputs.files }}
+        run: |
+          if [ "$CONFLICT" = 'true' ]; then
+            # 合并已回滚，这里把上游 tip 推成分支，冲突留给 PR 里人工解决
+            git push origin refs/remotes/upstream/main:refs/heads/"$BRANCH"
+            REASON=$(printf '合并存在冲突，需人工解决。冲突文件：\n\n```\n%s\n```' "$CONFLICT_FILES")
+          else
+            git push origin HEAD:refs/heads/"$BRANCH"
+            REASON='合并本身无冲突，但自动验证未通过（或本次手动要求走 PR），请检查下方 CI 结果。'
+          fi
+          BODY=$(printf '由 [Sync Upstream](%s/%s/actions/runs/%s) 自动创建。\n\n%s\n\n本地处理方式：\n\n```bash\ngit fetch origin\ngit checkout %s\ngit merge origin/main\n```\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$REASON" "$BRANCH")
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "chore: 同步上游 jackwener/OpenCLI 至 $TIP" \
+            --body "$BODY"
+
+      - name: 标记本次运行需要关注
+        if: steps.merge.outputs.conflict == 'true' || steps.verify.outcome == 'failure'
+        run: |
+          echo "::error::自动同步未能直接推送 main，已开 PR 等待人工处理"
+          exit 1
