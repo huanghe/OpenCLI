@@ -23,12 +23,11 @@ describe('xiaohongshu follow', () => {
     const notFollowing = { ok: true, fstatus: 'none', hydrated: true };
     const following = { ok: true, fstatus: 'follows', hydrated: true };
 
-    it('follows through the store action and verifies the relation after reload', async () => {
+    it('trusts the fstatus the follow API returns without re-reading the page', async () => {
         const page = makePage([
-            profileUrl,                                     // location.href
-            notFollowing,                                   // status before
-            { ok: true, state: 'followed', response: {} },  // toFollow
-            following,                                      // status after reload
+            profileUrl,                                                    // location.href
+            notFollowing,                                                  // status before
+            { ok: true, state: 'followed', fstatus: 'follows', response: {} },
         ]);
         const result = await getCommand().func(page, { 'user-id': validId });
         expect(result).toEqual([{
@@ -36,14 +35,32 @@ describe('xiaohongshu follow', () => {
             user_id: validId,
             already_following: false,
             status: 'followed',
+            verified: true,
             url: profileUrl,
         }]);
-        expect(page.goto).toHaveBeenCalledTimes(2);
-        expect(page.goto).toHaveBeenNthCalledWith(1, profileUrl);
-        expect(page.goto).toHaveBeenNthCalledWith(2, profileUrl);
+        // No verification round-trip needed when the API already answered.
+        expect(page.goto).toHaveBeenCalledTimes(1);
         const followScript = String(page.evaluate.mock.calls[2][0]);
         expect(followScript).toContain('store.toFollow({ targetUserId })');
         expect(followScript).toContain(JSON.stringify(validId));
+    });
+
+    it('re-reads through /explore when the API response carries no fstatus', async () => {
+        const page = makePage([
+            profileUrl,
+            notFollowing,
+            { ok: true, state: 'followed', response: {} },  // no fstatus
+            following,                                      // fresh read after the bounce
+        ]);
+        const result = await getCommand().func(page, { 'user-id': validId });
+        expect(result[0]).toMatchObject({ ok: true, status: 'followed', verified: true });
+        // A same-URL goto is a soft nav in this SPA, so the profile is only
+        // re-fetched after leaving for /explore first.
+        expect(page.goto.mock.calls.map((c) => c[0])).toEqual([
+            profileUrl,
+            'https://www.xiaohongshu.com/explore',
+            profileUrl,
+        ]);
     });
 
     it('returns already_following without issuing a write when fstatus is follows / both', async () => {
@@ -55,6 +72,7 @@ describe('xiaohongshu follow', () => {
                 user_id: validId,
                 already_following: true,
                 status: 'already-following',
+                verified: true,
                 url: profileUrl,
             }]);
             // href + status read only — no follow action, no reload.
@@ -73,6 +91,7 @@ describe('xiaohongshu follow', () => {
         const result = await getCommand().func(page, { 'user-id': validId });
         expect(result[0].already_following).toBe(true);
         expect(page.wait).toHaveBeenCalledTimes(3); // settle + 2 hydration retries
+        expect(result[0].verified).toBe(true);
     });
 
     it('accepts a full profile URL and extracts the user id', async () => {
@@ -87,8 +106,7 @@ describe('xiaohongshu follow', () => {
         const page = makePage([
             { session: 's', data: profileUrl },
             { session: 's', data: notFollowing },
-            { session: 's', data: { ok: true, state: 'followed' } },
-            { session: 's', data: following },
+            { session: 's', data: { ok: true, state: 'followed', fstatus: 'follows' } },
         ]);
         const result = await getCommand().func(page, { 'user-id': validId });
         expect(result[0].status).toBe('followed');
@@ -141,14 +159,29 @@ describe('xiaohongshu follow', () => {
         expect(page.goto).toHaveBeenCalledTimes(1);
     });
 
-    it('fails when the relation does not flip after the follow request', async () => {
+    it('reports an accepted follow as ok:true with verified:false when the read-back stays stale', async () => {
+        // Regression: a follow that had actually landed was reported as a
+        // failure because the SPA kept serving the pre-follow profile. This
+        // command is not idempotent, so a retry would double-follow.
         const page = makePage([
             profileUrl,
             notFollowing,
             { ok: true, state: 'followed' },
-            notFollowing,
+            ...Array.from({ length: 12 }, () => notFollowing),
         ]);
-        await expect(getCommand().func(page, { 'user-id': validId })).rejects.toThrowError(/relation still reads "none"/);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        try {
+            const result = await getCommand().func(page, { 'user-id': validId });
+            expect(result[0]).toMatchObject({
+                ok: true,
+                already_following: false,
+                status: 'followed-unverified',
+                verified: false,
+            });
+            expect(stderr.mock.calls[0][0]).toBe('FOLLOW_UNVERIFIED\n');
+        } finally {
+            stderr.mockRestore();
+        }
     });
 
     it('throws CommandExecutionError for malformed evaluate payloads', async () => {
