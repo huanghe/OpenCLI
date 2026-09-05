@@ -8,6 +8,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CliError, CommandExecutionError, EmptyResultError, TimeoutError } from '@jackwener/opencli/errors';
 import { unwrapEvaluateResult } from './shared.js';
+import { searchXhsUsers } from './user-search.js';
 /**
  * Wait for search results or login wall using MutationObserver (max 5s).
  * Returns 'content' if note items appeared, a typed wall state when login or
@@ -866,12 +867,13 @@ export const command = cli({
     site: 'xiaohongshu',
     name: 'search',
     access: 'read',
-    description: '搜索小红书笔记',
+    description: '搜索小红书笔记（--type user 时搜索用户）',
     domain: 'www.xiaohongshu.com',
     strategy: Strategy.COOKIE,
     navigateBefore: false,
     args: [
         { name: 'query', required: true, positional: true, help: 'Search keyword' },
+        { name: 'type', type: 'string', default: 'notes', choices: ['notes', 'user'], help: 'notes (default) searches notes; user searches accounts and returns user_id/nickname/red_id/avatar/desc/fans/notes_count/url rows' },
         { name: 'limit', type: 'int', default: 20, help: 'Number of results' },
         { name: 'sort', type: 'string', default: 'comprehensive', choices: ['comprehensive', 'latest', 'most-liked', 'most-commented', 'most-collected'], help: 'Sort order' },
         { name: 'note-type', type: 'string', default: 'all', choices: ['all', 'video', 'image'], help: 'Note type' },
@@ -883,6 +885,13 @@ export const command = cli({
     func: async (page, kwargs) => {
         try {
             const limit = parseLimit(kwargs.limit);
+            const searchType = kwargs.type ?? 'notes';
+            if (searchType === 'user') {
+                return await searchXhsUsers(page, String(kwargs.query ?? ''), limit);
+            }
+            if (searchType !== 'notes') {
+                throw new ArgumentError(`--type must be one of: notes, user, got ${JSON.stringify(searchType)}`);
+            }
             const requestedFilters = resolveSearchFilters(kwargs);
             const keyword = encodeURIComponent(kwargs.query);
             const url = `https://www.xiaohongshu.com/search_result?keyword=${keyword}&source=web_search_result_notes`;

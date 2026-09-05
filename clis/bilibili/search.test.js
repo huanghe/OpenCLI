@@ -68,6 +68,8 @@ describe('bilibili search adapter', () => {
                     usign: ' 影视制作 ',
                     mid: 946974,
                     fans: 2000000,
+                    videos: 812,
+                    level: 6,
                     upic: '//i2.hdslb.com/bfs/face/abc.jpg',
                 }],
             },
@@ -79,14 +81,26 @@ describe('bilibili search adapter', () => {
             author: '影视制作',
             mid: '946974',
             score: 2000000,
+            // Semantic names for the discovery pipeline; numbers stay numbers.
+            name: '影视飓风',
+            sign: '影视制作',
+            fans: 2000000,
+            videos: 812,
+            level: 6,
             url: 'https://space.bilibili.com/946974',
             face: 'https://i2.hdslb.com/bfs/face/abc.jpg',
+            avatar: 'https://i2.hdslb.com/bfs/face/abc.jpg',
         });
     });
 
     it('declares every emitted key in columns', async () => {
         mockApiGet.mockResolvedValue({ data: { result: [videoResult()] } });
-        const [row] = await command.func({}, { query: 'rust', limit: 1 });
-        expect(Object.keys(row).sort()).toEqual([...command.columns].sort());
+        const [video] = await command.func({}, { query: 'rust', limit: 1 });
+        mockApiGet.mockResolvedValue({ data: { result: [{ uname: 'u', mid: 1, fans: 1, videos: 1 }] } });
+        const [user] = await command.func({}, { query: 'u', type: 'user', limit: 1 });
+        const columns = new Set(command.columns);
+        for (const key of [...Object.keys(video), ...Object.keys(user)]) {
+            expect(columns.has(key), `column ${key}`).toBe(true);
+        }
     });
 });

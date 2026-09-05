@@ -3889,7 +3889,8 @@
       "name",
       "sign",
       "following",
-      "fans"
+      "fans",
+      "avatar"
     ],
     "type": "js",
     "modulePath": "bilibili/following.js",
@@ -4060,7 +4061,11 @@
         "type": "str",
         "default": "video",
         "required": false,
-        "help": "video or user"
+        "help": "video (default) or user; user rows carry mid / name / sign / fans / videos / avatar / url",
+        "choices": [
+          "video",
+          "user"
+        ]
       },
       {
         "name": "page",
@@ -4093,7 +4098,13 @@
       "url",
       "cover",
       "face",
-      "desc"
+      "desc",
+      "name",
+      "sign",
+      "fans",
+      "videos",
+      "level",
+      "avatar"
     ],
     "type": "js",
     "modulePath": "bilibili/search.js",
@@ -4192,6 +4203,40 @@
     "type": "js",
     "modulePath": "bilibili/unfollow.js",
     "sourceFile": "bilibili/unfollow.js",
+    "navigateBefore": "https://www.bilibili.com"
+  },
+  {
+    "site": "bilibili",
+    "name": "user-info",
+    "description": "Bilibili 用户信息（昵称 / 签名 / 粉丝 / 关注 / 等级 / 头像）",
+    "access": "read",
+    "domain": "www.bilibili.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "mid",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "用户 mid、space.bilibili.com/<mid> 链接，或用户名（按搜索首个结果解析）"
+      }
+    ],
+    "columns": [
+      "mid",
+      "name",
+      "sign",
+      "fans",
+      "following",
+      "level",
+      "avatar",
+      "official",
+      "vip",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "bilibili/user-info.js",
+    "sourceFile": "bilibili/user-info.js",
     "navigateBefore": "https://www.bilibili.com"
   },
   {
@@ -41337,6 +41382,45 @@
   },
   {
     "site": "twitter",
+    "name": "list-members",
+    "description": "Fetch members of a Twitter/X list (everyone the list owner has added)",
+    "access": "read",
+    "domain": "x.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "list-id",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "Numeric list id or https://x.com/i/lists/<id>"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 200,
+        "required": false,
+        "help": "Maximum members to return (1-5000, default 200)"
+      }
+    ],
+    "columns": [
+      "user_id",
+      "screen_name",
+      "name",
+      "bio",
+      "followers",
+      "verified",
+      "avatar",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "twitter/list-members.js",
+    "sourceFile": "twitter/list-members.js",
+    "navigateBefore": "https://x.com"
+  },
+  {
+    "site": "twitter",
     "name": "list-remove",
     "description": "Remove a user from a Twitter/X list you own (toggles via UI; no-op if not currently a member)",
     "access": "write",
@@ -41655,7 +41739,9 @@
       "tweets",
       "likes",
       "verified",
-      "created_at"
+      "created_at",
+      "avatar",
+      "user_id"
     ],
     "type": "js",
     "modulePath": "twitter/profile.js",
@@ -41833,7 +41919,7 @@
   {
     "site": "twitter",
     "name": "search",
-    "description": "Search Twitter/X for tweets, with optional --from / --has / --exclude / --product filters mapped to X's search operators",
+    "description": "Search Twitter/X for tweets (or accounts with --type people), with optional --from / --has / --exclude / --product filters mapped to X's search operators",
     "access": "read",
     "domain": "x.com",
     "strategy": "cookie",
@@ -41858,10 +41944,21 @@
         ]
       },
       {
+        "name": "type",
+        "type": "string",
+        "default": "tweets",
+        "required": false,
+        "help": "tweets (default) returns tweet rows; people reads the People tab and returns account rows {user_id, screen_name, name, bio, followers, verified, url, avatar}.",
+        "choices": [
+          "tweets",
+          "people"
+        ]
+      },
+      {
         "name": "product",
         "type": "string",
         "required": false,
-        "help": "Which X search tab to read: top (default), live (Latest), photos, videos. Maps to the f= URL param.",
+        "help": "Which X search tab to read: top (default), live (Latest), photos, videos. Maps to the f= URL param. Ignored when --type people.",
         "choices": [
           "top",
           "live",
@@ -41930,7 +42027,13 @@
       "media_posters",
       "media_durations",
       "card",
-      "quoted_tweet"
+      "quoted_tweet",
+      "user_id",
+      "screen_name",
+      "name",
+      "followers",
+      "verified",
+      "avatar"
     ],
     "type": "js",
     "modulePath": "twitter/search.js",
@@ -46031,7 +46134,7 @@
   {
     "site": "xiaohongshu",
     "name": "follow",
-    "description": "关注小红书用户 (profile UI automation)",
+    "description": "关注小红书用户（走页面 store 的 toFollow 接口，已关注时返回 already_following=true 而不报错）",
     "access": "write",
     "domain": "www.xiaohongshu.com",
     "strategy": "cookie",
@@ -46046,8 +46149,10 @@
       }
     ],
     "columns": [
-      "status",
+      "ok",
       "user_id",
+      "already_following",
+      "status",
       "url"
     ],
     "type": "js",
@@ -46289,7 +46394,7 @@
   {
     "site": "xiaohongshu",
     "name": "search",
-    "description": "搜索小红书笔记",
+    "description": "搜索小红书笔记（--type user 时搜索用户）",
     "access": "read",
     "domain": "www.xiaohongshu.com",
     "strategy": "cookie",
@@ -46301,6 +46406,17 @@
         "required": true,
         "positional": true,
         "help": "Search keyword"
+      },
+      {
+        "name": "type",
+        "type": "string",
+        "default": "notes",
+        "required": false,
+        "help": "notes (default) searches notes; user searches accounts and returns user_id/nickname/red_id/avatar/desc/fans/notes_count/url rows",
+        "choices": [
+          "notes",
+          "user"
+        ]
       },
       {
         "name": "limit",
@@ -46448,6 +46564,80 @@
     "type": "js",
     "modulePath": "xiaohongshu/user.js",
     "sourceFile": "xiaohongshu/user.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "xiaohongshu",
+    "name": "user-following",
+    "description": "小红书关注列表。不传 user_id 或传自己的 id 时返回自己的关注；web 端不提供他人关注列表，传他人 id 时返回空数组并在 stderr 输出 PRIVATE_FOLLOWING",
+    "access": "read",
+    "domain": "www.xiaohongshu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user-id",
+        "type": "string",
+        "required": false,
+        "positional": true,
+        "help": "User ID or profile URL. Omit for the logged-in user. Other users always yield an empty result + stderr PRIVATE_FOLLOWING (xhs web has no such endpoint)."
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 200,
+        "required": false,
+        "help": "Maximum rows to return (1-2000)"
+      }
+    ],
+    "columns": [
+      "user_id",
+      "nickname",
+      "desc",
+      "fans",
+      "avatar",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "xiaohongshu/user-following.js",
+    "sourceFile": "xiaohongshu/user-following.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "xiaohongshu",
+    "name": "user-info",
+    "description": "小红书用户信息（昵称 / 小红书号 / 简介 / 粉丝 / 关注 / 获赞与收藏 / 头像）",
+    "access": "read",
+    "domain": "www.xiaohongshu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "user-id",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+      }
+    ],
+    "columns": [
+      "user_id",
+      "nickname",
+      "red_id",
+      "desc",
+      "fans",
+      "follows",
+      "likes_collects",
+      "notes_count",
+      "following",
+      "follow_status",
+      "ip_location",
+      "avatar",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "xiaohongshu/user-info.js",
+    "sourceFile": "xiaohongshu/user-info.js",
     "navigateBefore": false
   },
   {
@@ -47884,6 +48074,46 @@
   },
   {
     "site": "youtube",
+    "name": "channel-videos",
+    "description": "List a YouTube channel's uploads (video_id / title / duration / views / published / url)",
+    "access": "read",
+    "domain": "www.youtube.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "id",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Channel ID (UCxxxx), @handle, or channel URL"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 10,
+        "required": false,
+        "help": "Max videos (1-200)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "video_id",
+      "title",
+      "duration",
+      "views",
+      "views_count",
+      "published",
+      "url",
+      "channel_id"
+    ],
+    "type": "js",
+    "modulePath": "youtube/channel-videos.js",
+    "sourceFile": "youtube/channel-videos.js",
+    "navigateBefore": "https://www.youtube.com"
+  },
+  {
+    "site": "youtube",
     "name": "comments",
     "description": "Get YouTube video comments",
     "access": "read",
@@ -48130,7 +48360,13 @@
       "views",
       "duration",
       "published",
-      "url"
+      "url",
+      "channel_id",
+      "handle",
+      "subscribers",
+      "subscribers_count",
+      "video_count",
+      "description"
     ],
     "type": "js",
     "modulePath": "youtube/search.js",

@@ -107,7 +107,7 @@
     "rule": "silent-clamp",
     "command": "bilibili/following",
     "file": "clis/bilibili/following.js",
-    "line": 25,
+    "line": 34,
     "text": "const ps = Math.min(kwargs.limit ?? 50, 50);",
     "occurrence": 0
   },
@@ -123,7 +123,7 @@
     "rule": "silent-clamp",
     "command": "bilibili/user-videos",
     "file": "clis/bilibili/user-videos.js",
-    "line": 24,
+    "line": 67,
     "text": "ps: Math.min(Number(limit), 50),",
     "occurrence": 0
   },
@@ -491,7 +491,7 @@
     "rule": "silent-clamp",
     "command": "spotify/auth",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -499,7 +499,7 @@
     "rule": "silent-clamp",
     "command": "spotify/next",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -507,7 +507,7 @@
     "rule": "silent-clamp",
     "command": "spotify/pause",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -515,7 +515,7 @@
     "rule": "silent-clamp",
     "command": "spotify/play",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -523,7 +523,7 @@
     "rule": "silent-clamp",
     "command": "spotify/prev",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -531,7 +531,7 @@
     "rule": "silent-clamp",
     "command": "spotify/queue",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -539,7 +539,7 @@
     "rule": "silent-clamp",
     "command": "spotify/repeat",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -547,7 +547,7 @@
     "rule": "silent-clamp",
     "command": "spotify/search",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -555,7 +555,7 @@
     "rule": "silent-clamp",
     "command": "spotify/shuffle",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -563,7 +563,7 @@
     "rule": "silent-clamp",
     "command": "spotify/status",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -571,7 +571,7 @@
     "rule": "silent-clamp",
     "command": "spotify/volume",
     "file": "clis/spotify/spotify.js",
-    "line": 277,
+    "line": 282,
     "text": "const limit = Math.min(50, Math.max(1, Math.round(kwargs.limit)));",
     "occurrence": 0
   },
@@ -619,7 +619,7 @@
     "rule": "silent-clamp",
     "command": "twitter/list-tweets",
     "file": "clis/twitter/list-tweets.js",
-    "line": 179,
+    "line": 183,
     "text": "const fetchCount = Math.min(100, limit - allTweets.length + 10);",
     "occurrence": 0
   },
@@ -707,7 +707,7 @@
     "rule": "silent-clamp",
     "command": "youtube/channel",
     "file": "clis/youtube/channel.js",
-    "line": 81,
+    "line": 25,
     "text": "const limit = Math.min(kwargs.limit || 10, 30);",
     "occurrence": 0
   },
@@ -891,7 +891,7 @@
     "rule": "silent-sentinel",
     "command": "twitter/thread",
     "file": "clis/twitter/thread.js",
-    "line": 49,
+    "line": 51,
     "text": "const screenName = u?.legacy?.screen_name || u?.core?.screen_name || 'unknown';",
     "occurrence": 0
   },
@@ -979,7 +979,7 @@
     "rule": "silent-sentinel",
     "command": "xiaohongshu/download",
     "file": "clis/xiaohongshu/download.js",
-    "line": 53,
+    "line": 54,
     "text": "result.author = authorEl?.textContent?.trim() || 'unknown';",
     "occurrence": 0
   },

@@ -174,15 +174,15 @@ Browser Bridge daemon 与扩展的通信端口固定为 `localhost:19825`，不�
 
 | 站点 | 命令 |
 |------|------|
-| **xiaohongshu** | `search` `ask` `note` `comments` `notifications` `feed` `user` `saved` `liked` `download` `publish` `follow` `unfollow` `creator-notes` `creator-note-detail` `creator-notes-summary` `creator-profile` `creator-stats` |
-| **bilibili** | `hot` `search` `me` `favorite` `history` `feed` `subtitle` `summary` `video` `comments` `dynamic` `ranking` `following` `follow` `unfollow` `user-videos` `download` `creator-stats` |
+| **xiaohongshu** | `search` `ask` `note` `comments` `notifications` `feed` `user` `user-info` `user-following` `saved` `liked` `download` `publish` `follow` `unfollow` `creator-notes` `creator-note-detail` `creator-notes-summary` `creator-profile` `creator-stats` |
+| **bilibili** | `hot` `search` `me` `favorite` `history` `feed` `subtitle` `summary` `video` `comments` `dynamic` `ranking` `following` `follow` `unfollow` `user-videos` `user-info` `download` `creator-stats` |
 | **zhihu** | `hot` `search` `question` `download` `follow` `like` `favorite` `comment` `answer` |
 | **hackernews** | `top` `new` `best` `ask` `show` `jobs` `search` `user` |
 | **hltv** | `search` `player-summary` `player-matches` `player-form` `player-map-pool` `player-vs-team` `player-teammate-impact` `player-duel` `match-map` `match-series` `team-matches` `team-map-pool` `event-matches` |
 | **geogebra** | `eval` `add-point` `add-line` `add-circle` `add-polygon` `triangle` `hexagon` `list` `info` |
 | **linkedin** | `connect` `inbox` `job-detail` `jobs-preferences` `post-analytics` `posts` `profile-experience` `profile-projects` `profile-read` `profile-analytics` `safe-send` `search` `people-search` `services-read` `sent-invitations` `thread-snapshot` `timeline` `salesnav-search` `salesnav-inbox` `salesnav-message` `salesnav-thread` |
 | **reddit** | `hot` `frontpage` `popular` `search` `subreddit` `read` `user` `user-posts` `user-comments` `upvote` `save` `comment` `subscribe` `saved` `upvoted` |
-| **twitter** | `trending` `search` `timeline` `tweets` `lists` `list-tweets` `list-create` `list-delete` `list-add` `list-add-batch` `list-remove` `list-remove-batch` `bookmarks` `profile` `thread` `following` `followers` `notifications` `post` `reply` `delete` `like` `likes` `article` `follow` `unfollow` `bookmark` `unbookmark` `download` `accept` `reply-dm` `block` `unblock` `hide-reply` |
+| **twitter** | `trending` `search` `timeline` `tweets` `lists` `list-tweets` `list-members` `list-create` `list-delete` `list-add` `list-add-batch` `list-remove` `list-remove-batch` `bookmarks` `profile` `thread` `following` `followers` `notifications` `post` `reply` `delete` `like` `likes` `article` `follow` `unfollow` `bookmark` `unbookmark` `download` `accept` `reply-dm` `block` `unblock` `hide-reply` |
 | **claude** | `ask` `send` `new` `status` `read` `history` `detail` |
 | **gemini** | `new` `ask` `image` `deep-research` `deep-research-result` |
 | **notebooklm** | `status` `list` `open` `current` `get` `history` `summary` `note-list` `notes-get` `source-list` `source-get` `source-fulltext` `source-guide` |
