@@ -185,15 +185,15 @@ When the site you need is not yet covered, use the `opencli-adapter-author` skil
 
 | Site | Commands |
 |------|----------|
-| **xiaohongshu** | `search` `ask` `note` `comments` `feed` `user` `download` `publish` `follow` `unfollow` `notifications` `creator-notes` `creator-notes-summary` `creator-note-detail` `creator-profile` `creator-stats` |
-| **bilibili** | `hot` `search` `history` `feed` `ranking` `download` `comments` `dynamic` `favorite` `following` `follow` `unfollow` `me` `subtitle` `summary` `video` `user-videos` `creator-stats` |
+| **xiaohongshu** | `search` `ask` `note` `comments` `feed` `user` `user-info` `user-following` `download` `publish` `follow` `unfollow` `notifications` `creator-notes` `creator-notes-summary` `creator-note-detail` `creator-profile` `creator-stats` |
+| **bilibili** | `hot` `search` `history` `feed` `ranking` `download` `comments` `dynamic` `favorite` `following` `follow` `unfollow` `me` `subtitle` `summary` `video` `user-videos` `user-info` `creator-stats` |
 | **zhihu** | `hot` `search` `question` `download` `follow` `like` `favorite` `comment` `answer` |
 | **hackernews** | `top` `new` `best` `ask` `show` `jobs` `search` `user` |
 | **hltv** | `search` `player-summary` `player-matches` `player-form` `player-map-pool` `player-vs-team` `player-teammate-impact` `player-duel` `match-map` `match-series` `team-matches` `team-map-pool` `event-matches` |
 | **geogebra** | `eval` `add-point` `add-line` `add-circle` `add-polygon` `triangle` `hexagon` `list` `info` |
 | **linkedin** | `connect` `inbox` `job-detail` `jobs-preferences` `post-analytics` `posts` `profile-experience` `profile-projects` `profile-read` `profile-analytics` `safe-send` `search` `services-read` `sent-invitations` `thread-snapshot` `timeline` `salesnav-search` `salesnav-inbox` `salesnav-message` `salesnav-thread` |
 | **reddit** | `hot` `frontpage` `popular` `search` `subreddit` `read` `user` `user-posts` `user-comments` `upvote` `upvoted` `save` `saved` `comment` `subscribe` |
-| **twitter** | `trending` `search` `timeline` `tweets` `lists` `list-tweets` `list-create` `list-delete` `list-add` `list-add-batch` `list-remove` `list-remove-batch` `bookmarks` `post` `download` `profile` `article` `like` `likes` `notifications` `reply` `reply-dm` `thread` `follow` `unfollow` `followers` `following` `block` `unblock` `bookmark` `unbookmark` `delete` `hide-reply` `accept` |
+| **twitter** | `trending` `search` `timeline` `tweets` `lists` `list-tweets` `list-members` `list-create` `list-delete` `list-add` `list-add-batch` `list-remove` `list-remove-batch` `bookmarks` `post` `download` `profile` `article` `like` `likes` `notifications` `reply` `reply-dm` `thread` `follow` `unfollow` `followers` `following` `block` `unblock` `bookmark` `unbookmark` `delete` `hide-reply` `accept` |
 | **claude** | `ask` `send` `new` `status` `read` `history` `detail` |
 | **gemini** | `new` `ask` `image` `deep-research` `deep-research-result` |
 | **notebooklm** | `status` `list` `open` `current` `get` `history` `summary` `note-list` `notes-get` `source-list` `source-get` `source-fulltext` `source-guide` |

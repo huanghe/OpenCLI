@@ -1,6 +1,6 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { buildUserByScreenNameQueryUrl, looksLikePrivateTwitterTimeline, normalizeTwitterScreenName, resolveTwitterQueryId, sanitizeQueryId, unwrapBrowserResult, describeTwitterApiError } from './shared.js';
+import { buildUserByScreenNameQueryUrl, emitPrivateFollowing, looksLikePrivateTwitterTimeline, normalizeTwitterScreenName, resolveTwitterQueryId, sanitizeQueryId, unwrapBrowserResult, describeTwitterApiError } from './shared.js';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 
 const FOLLOWING_QUERY_ID = 'F42cDX8PDFxkbjjq6JrM2w';
@@ -237,7 +237,9 @@ cli({
 
         if (allUsers.length === 0) {
             if (looksLikePrivateTwitterTimeline(lastRawResponse)) {
-                throw new EmptyResultError('twitter following', `No following data returned for @${targetUser} (the target account may have set their following list to private)`);
+                // Hidden list: exit 0 + [] + stderr PRIVATE_FOLLOWING (shared skip contract).
+                emitPrivateFollowing(`No following data returned for @${targetUser} (the target account has set their following list to private)`);
+                return [];
             }
             throw new EmptyResultError('twitter following', `No following accounts found for @${targetUser}`);
         }

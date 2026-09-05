@@ -218,14 +218,18 @@ describe('twitter followers command', () => {
             .rejects.toBeInstanceOf(TimeoutError);
     });
 
-    it('surfaces a private-followers hint for an empty timeline object', async () => {
+    it('returns [] and prints PRIVATE_FOLLOWING on stderr for an empty timeline object (hidden list)', async () => {
         const command = getRegistry().get('twitter/followers');
         const page = createFollowersPage([[
             { data: { user: { result: { __typename: 'User', timeline: {} } } } },
         ]]);
-
-        await expect(command.func(page, { user: 'private_user', limit: 10 }))
-            .rejects.toMatchObject({ hint: expect.stringContaining('followers list to private') });
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        try {
+            await expect(command.func(page, { user: 'private_user', limit: 10 })).resolves.toEqual([]);
+            expect(stderr.mock.calls[0][0]).toBe('PRIVATE_FOLLOWING\n');
+        } finally {
+            stderr.mockRestore();
+        }
     });
 
     it('fails fast when the interceptor returns no follower rows', async () => {

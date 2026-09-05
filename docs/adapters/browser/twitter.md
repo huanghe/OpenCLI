@@ -23,6 +23,7 @@
 | `opencli twitter likes` | |
 | `opencli twitter lists` | |
 | `opencli twitter list-tweets` | |
+| `opencli twitter list-members` | Members of a list (everyone the owner added, including accounts that have not posted recently) |
 | `opencli twitter list-create` | Create a Twitter/X list via GraphQL and return the created list id |
 | `opencli twitter list-delete` | Delete a Twitter/X list you own after explicit confirmation |
 | `opencli twitter list-add` | |
@@ -98,4 +99,8 @@ opencli twitter trending -v
 
 - Timeline-shaped commands emit `media_durations`, index-aligned 1:1 with `media_urls`: video length in milliseconds, `0` for photos
 - Video `media_urls` point at the highest-bitrate mp4 variant X offers (previously the lowest, 480x270)
+- `search --type people` reads X's People tab (GraphQL product `People`) and returns account rows — `user_id`, `screen_name`, `name`, `bio`, `followers`, `verified`, `url`, `avatar` — instead of tweets; `--product` and `--top-by-engagement` are ignored in that mode
+- `profile` emits `avatar` (400x400) and `user_id` alongside the existing bio / count columns
+- `list-members` paginates the `ListMembers` GraphQL operation (default `--limit 200`) and emits `user_id`, `screen_name`, `name`, `bio`, `followers`, `verified`, `avatar`, `url`
+- `following` / `followers` on an account whose list is hidden exit 0 with an empty array and print a single `PRIVATE_FOLLOWING` line on stderr (previously an `EMPTY_RESULT` error), so batch callers can skip without retrying
 - `list-tweets`, `thread` and `search` emit `author_avatar` (the `_400x400` profile image) and `views` (numeric string, `'0'` when X omits it)

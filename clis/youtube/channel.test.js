@@ -91,9 +91,11 @@ describe('parseVideoItem', () => {
         };
         const result = __test__.parseVideoItem(item);
         expect(result).toEqual({
+            video_id: 'abc123',
             title: 'Test Video',
             duration: '12:34',
             views: '10K views | 2 days ago',
+            published: '2 days ago',
             url: 'https://www.youtube.com/watch?v=abc123',
         });
     });
@@ -114,9 +116,11 @@ describe('parseVideoItem', () => {
         };
         const result = __test__.parseVideoItem(item);
         expect(result).toEqual({
+            video_id: 'xyz789',
             title: 'Legacy Video',
             duration: '5:00',
             views: '1K views | 3 days ago',
+            published: '3 days ago',
             url: 'https://www.youtube.com/watch?v=xyz789',
         });
     });

@@ -369,11 +369,15 @@ describe('twitter following command', () => {
         await expect(command.func(page, { user: 'elonmusk', limit: 10 })).rejects.toBeInstanceOf(EmptyResultError);
     });
 
-    it('surfaces the private-following privacy hint when result.timeline is empty', async () => {
+    it('returns [] and prints PRIVATE_FOLLOWING on stderr when result.timeline is empty (hidden list)', async () => {
         const command = getRegistry().get('twitter/following');
         const page = createFollowingPage([{ data: { user: { result: { __typename: 'User', timeline: {} } } } }]);
-
-        await expect(command.func(page, { user: 'simonw', limit: 10 }))
-            .rejects.toMatchObject({ hint: expect.stringContaining('following list to private') });
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        try {
+            await expect(command.func(page, { user: 'simonw', limit: 10 })).resolves.toEqual([]);
+            expect(stderr.mock.calls[0][0]).toBe('PRIVATE_FOLLOWING\n');
+        } finally {
+            stderr.mockRestore();
+        }
     });
 });

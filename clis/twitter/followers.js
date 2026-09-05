@@ -1,6 +1,6 @@
 import { ArgumentError, AuthRequiredError, EmptyResultError, CommandExecutionError, TimeoutError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { looksLikePrivateTwitterTimeline, normalizeTwitterGraphqlPayload, normalizeTwitterScreenName, unwrapBrowserResult } from './shared.js';
+import { emitPrivateFollowing, looksLikePrivateTwitterTimeline, normalizeTwitterGraphqlPayload, normalizeTwitterScreenName, unwrapBrowserResult } from './shared.js';
 
 const MAX_PAGINATION_PAGES = 100;
 const CAPTURE_TIMEOUT_SECONDS = 10;
@@ -195,7 +195,9 @@ cli({
         }
         if (allFollowers.length === 0) {
             if (looksLikePrivateTwitterTimeline(lastRawResponse)) {
-                throw new EmptyResultError('twitter followers', `No follower data returned for @${targetUser} (the target account may have set their followers list to private)`);
+                // Hidden list: exit 0 + [] + stderr PRIVATE_FOLLOWING (shared skip contract).
+                emitPrivateFollowing(`No follower data returned for @${targetUser} (the target account has set their followers list to private)`);
+                return [];
             }
             throw new EmptyResultError('twitter followers', `No followers found for @${targetUser}`);
         }

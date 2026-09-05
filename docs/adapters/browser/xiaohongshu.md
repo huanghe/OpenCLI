@@ -6,19 +6,21 @@
 
 | Command | Description |
 |---------|-------------|
-| `opencli xiaohongshu search` | Search notes by keyword (returns title, author, likes, URL) |
+| `opencli xiaohongshu search` | Search notes by keyword (returns title, author, likes, URL); `--type user` searches accounts instead |
 | `opencli xiaohongshu ask` | Ask 点点 and return its answer with citation sources (`sources[]` in JSON) |
 | `opencli xiaohongshu note` | Read full note content (title, author, description, likes, collects, comments, tags) |
 | `opencli xiaohongshu comments` | Read comments from a note (`--with-replies` for nested 楼中楼 replies) |
 | `opencli xiaohongshu feed` | Home feed recommendations (reads the hydrated Pinia store; URLs carry `xsec_token` for drill-down) |
 | `opencli xiaohongshu notifications` | User notifications (mentions, likes, connections) |
 | `opencli xiaohongshu user` | Get public notes from a user profile |
+| `opencli xiaohongshu user-info` | Profile card for one user (nickname, red_id, desc, fans, follows, likes_collects, avatar, follow status) |
+| `opencli xiaohongshu user-following` | Accounts the logged-in user follows; other users' lists are not exposed by the web app (see notes) |
 | `opencli xiaohongshu saved` | List saved/collected notes (`/user/profile/<id>?tab=fav&subTab=note`) |
 | `opencli xiaohongshu liked` | List liked notes (`/user/profile/<id>?tab=liked&subTab=note`) |
 | `opencli xiaohongshu download` | Download images and videos from a note |
 | `opencli xiaohongshu publish` | Publish image-text notes (creator center UI automation) |
 | `opencli xiaohongshu delete-note` | Verify or delete a published creator-center note by exact note ID |
-| `opencli xiaohongshu follow` | Follow a user from the profile UI and verify the button state flips |
+| `opencli xiaohongshu follow` | Follow a user through the page's own `user` store action and verify the relation after reload |
 | `opencli xiaohongshu unfollow` | Unfollow a user from the profile UI, confirm the modal, and verify the button state flips |
 | `opencli xiaohongshu creator-notes` | Creator's note list with per-note metrics |
 | `opencli xiaohongshu creator-note-detail` | Detailed analytics for a single creator note |
@@ -80,7 +82,9 @@ opencli xiaohongshu delete-note 6a08ba0b000000000702a893 --execute
 > With `comments --with-replies`, `reply_to` is the direct reply target displayed by the page. Replies without an explicit `回复 <name>` marker target the enclosing top-level comment.
 > `ask` is separate from ordinary `search`: it submits the question to 点点, returns `answer`, `source_count`, and `sources[]`, and keeps `xsec_token` in JSON when Xiaohongshu returns one. The current 点点 source API may return bare note IDs without `xsec_token`; in that case `url` falls back to `/explore/<note_id>` and `xsec_token` is an empty string. Each source also carries the engagement and identity metadata 点点 returns: `like_count`, `note_type` (`normal`/`video`), `user_id`, and `published_at` (each omitted when 点点 does not provide it), so citation analysis can read likes and note format without a follow-up `search`/`note` round-trip.
 > `delete-note` operates in creator center and accepts a 24-character note ID or exact Xiaohongshu note URL; it defaults to dry-run verification and only deletes with `--execute`.
-> `follow` and `unfollow` are write commands on the public profile page. They verify the browser stayed on the requested `/user/profile/<id>` target before clicking, and verify the visible follow-state button after the action.
+> `follow` and `unfollow` are write commands on the public profile page. Both verify the browser stayed on the requested `/user/profile/<id>` target first. `follow` no longer clicks the button (the click was intercepted by a modal in practice); it calls the Pinia `user` store's `toFollow` action — the same code path the site's own button uses, so the signed `X-s`/`X-t`/`X-S-Common` headers are produced by the page — and then reloads the profile to confirm `fstatus` reads `follows`/`both`. An account you already follow returns `{ ok: true, already_following: true }` without issuing a write. `unfollow` still drives the UI and confirms the modal.
+> `search --type user`, `user-info` and `user-following` cover the account-discovery path. `search --type user` drives the search page's `search` store (`getUserLists` / `loadMoreUsers`, the "用户" tab) and returns `user_id`, `nickname`, `red_id`, `avatar`, `desc`, `fans`, `notes_count`, `followed`, `url`; counts are numbers, unknown values are `null` (the user-search API carries no bio, so `desc` is usually `null`). `user-info` reads the server-rendered profile store: `fans` / `follows` / `likes_collects` are numbers, `following` is a boolean derived from `follow_status` (`none|follows|fans|both`), and `notes_count` is `null` because the web profile does not expose it.
+> `user-following` only works for the logged-in account (no argument, or your own id): the web app has no endpoint for other users' following lists — the profile's "关注 N" counter is plain text — so passing another user id exits 0 with an empty array and prints `PRIVATE_FOLLOWING` on stderr, the shared "hidden list, skip without retry" contract also used by `bilibili following` and `twitter following` / `followers`. The own-list rows come from the IM widget's `/api/im/web/users/following/all` response, which carries `user_id`, `nickname` and `avatar` only (`desc` and `fans` are `null`).
 > `publish --card-text` uses creator-center 文字配图. It requires generated card images to appear in the current composer before filling title/body or submitting. If you request `--card-style`, that exact live page style must be selected; unavailable styles fail instead of silently falling back.
 
 ## Prerequisites

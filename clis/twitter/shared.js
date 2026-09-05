@@ -196,6 +196,18 @@ export function looksLikePrivateTwitterTimeline(data) {
     return Boolean(isEmptyObject(result.timeline) || isEmptyObject(result.timeline_v2?.timeline));
 }
 
+/**
+ * Shared contract for social-graph commands (following / followers): when the
+ * target hides the list, exit 0 with an empty array and print exactly one
+ * stderr line `PRIVATE_FOLLOWING` so downstream tooling can skip the account
+ * without retrying or counting it as a failure.
+ */
+export const PRIVATE_FOLLOWING_MARKER = 'PRIVATE_FOLLOWING';
+export function emitPrivateFollowing(detail) {
+    process.stderr.write(`${PRIVATE_FOLLOWING_MARKER}\n`);
+    if (detail) process.stderr.write(`${detail}\n`);
+}
+
 export function normalizeTwitterGraphqlPayload(value) {
     const unwrapped = unwrapBrowserResult(value);
     if (unwrapped?.data && typeof unwrapped.data === 'object') return unwrapped;
