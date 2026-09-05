@@ -8,7 +8,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CliError, CommandExecutionError, EmptyResultError, TimeoutError } from '@jackwener/opencli/errors';
 import { unwrapEvaluateResult } from './shared.js';
-import { searchXhsUsers } from './user-search.js';
+import { searchXhsUsers, XHS_USER_SEARCH_COLUMNS } from './user-search.js';
 /**
  * Wait for search results or login wall using MutationObserver (max 5s).
  * Returns 'content' if note items appeared, a typed wall state when login or
@@ -881,7 +881,11 @@ export const command = cli({
         { name: 'scope', type: 'string', default: 'all', choices: ['all', 'seen', 'unseen', 'following'], help: 'Search scope' },
         { name: 'location', type: 'string', default: 'all', choices: ['all', 'same-city', 'nearby'], help: 'Location distance' },
     ],
-    columns: ['rank', 'title', 'author', 'likes', 'published_at', 'url'],
+    // Union of the note-row and user-row shapes: one command emits two row
+    // types (--type notes | user), and table output would otherwise drop
+    // every user-only key. Shared keys (rank/title/url) appear once.
+    columns: ['rank', 'title', 'author', 'likes', 'published_at', 'url',
+        ...XHS_USER_SEARCH_COLUMNS.filter((c) => !['rank', 'title', 'url'].includes(c))],
     func: async (page, kwargs) => {
         try {
             const limit = parseLimit(kwargs.limit);

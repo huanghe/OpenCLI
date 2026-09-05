@@ -46496,7 +46496,15 @@
       "author",
       "likes",
       "published_at",
-      "url"
+      "url",
+      "user_id",
+      "nickname",
+      "red_id",
+      "avatar",
+      "desc",
+      "fans",
+      "notes_count",
+      "followed"
     ],
     "type": "js",
     "modulePath": "xiaohongshu/search.js",
