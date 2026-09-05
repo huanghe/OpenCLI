@@ -164,9 +164,14 @@ cli({
         const videos = result.recentVideos;
         delete result.recentVideos;
         // Channel info as field/value pairs + recent videos as table
+        // Numeric metadata (subscribers_count, video_count) must stay numbers in
+        // JSON output — stringifying them here would hand consumers "21200000"
+        // instead of 21200000. Table rendering coerces for display anyway.
         const rows = Object.entries(result).map(([field, value]) => ({
             field,
-            value: value === null || value === undefined ? null : String(value),
+            value: value === null || value === undefined || typeof value === 'number'
+                ? value ?? null
+                : String(value),
         }));
         if (videos && videos.length > 0) {
             rows.push({ field: '---', value: '--- Recent Videos ---' });

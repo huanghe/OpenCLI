@@ -144,6 +144,19 @@ describe('xiaohongshu user search', () => {
             expect(String(page.goto.mock.calls[0][0])).toContain('search_result?keyword=');
         });
 
+        it('declares both row shapes in columns so table output drops nothing', () => {
+            const command = getRegistry().get('xiaohongshu/search');
+            const columns = new Set(command.columns);
+            // Note rows and user rows both flow through this one command.
+            for (const key of ['rank', 'title', 'author', 'likes', 'published_at', 'url']) {
+                expect(columns.has(key), `note column ${key}`).toBe(true);
+            }
+            for (const key of XHS_USER_SEARCH_COLUMNS) {
+                expect(columns.has(key), `user column ${key}`).toBe(true);
+            }
+            expect(command.columns.length).toBe(new Set(command.columns).size);
+        });
+
         it('rejects unknown --type values before navigating', async () => {
             const command = getRegistry().get('xiaohongshu/search');
             const page = makePage();
