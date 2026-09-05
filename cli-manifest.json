@@ -46153,6 +46153,7 @@
       "user_id",
       "already_following",
       "status",
+      "verified",
       "url"
     ],
     "type": "js",

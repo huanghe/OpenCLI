@@ -14,8 +14,15 @@
  *   3. Read `userPageData.extraInfo.fstatus` — 'follows' | 'both' means the
  *      viewer already follows the target → return already_following:true
  *      without issuing a write (the command is not idempotent server-side).
- *   4. Call `store.toFollow({ targetUserId })` and wait for the promise.
- *   5. Reload the profile and re-read fstatus to verify the relation flipped.
+ *   4. Call `store.toFollow({ targetUserId })` and read the `fstatus` the
+ *      follow API itself returns — that is the authoritative answer.
+ *   5. When the API response carries no state, re-read it from a genuinely
+ *      fresh profile render (see `refetchFollowStatus`).
+ *
+ * A follow that the API accepted is reported as a success even when step 5
+ * stays inconclusive (`verified: false` + a stderr note). This command is not
+ * idempotent, so reporting a landed write as a failure is the worst outcome:
+ * the caller retries and follows the account twice.
  *
  * Requires: logged into www.xiaohongshu.com in Chrome.
  */
@@ -27,7 +34,10 @@ import { unwrapEvaluateResult } from './shared.js';
 const PROFILE_SETTLE_MS = 2500;
 const VERIFY_RETRIES = 4;
 const VERIFY_WAIT_SECONDS = 1;
+/** Rounds of "leave the page, come back, re-read" used to defeat the SPA cache. */
+const REFETCH_ROUNDS = 2;
 const FOLLOWING_STATES = new Set(['follows', 'both']);
+export const UNVERIFIED_MARKER = 'FOLLOW_UNVERIFIED';
 
 function requireActionResult(payload, context) {
     const inner = unwrapEvaluateResult(payload);
@@ -74,8 +84,15 @@ function buildFollowScript(userId) {
   if (!store) return { ok: false, state: 'failed', reason: 'store_unavailable' };
   if (typeof store.toFollow !== 'function') return { ok: false, state: 'failed', reason: 'action_unavailable' };
   try {
-    const response = await store.toFollow({ targetUserId });
-    return { ok: true, state: 'followed', response: __xhsClone(response) };
+    const response = __xhsClone(await store.toFollow({ targetUserId }));
+    // POST /api/sns/web/v1/user/follow answers with the resulting relation.
+    // Depending on the axios interceptor the body may arrive unwrapped or
+    // still nested under a data property, so read both shapes.
+    const payload = response && typeof response === 'object' ? response : {};
+    const inner = payload.data && typeof payload.data === 'object' ? payload.data : {};
+    const fstatus = typeof payload.fstatus === 'string' ? payload.fstatus
+      : typeof inner.fstatus === 'string' ? inner.fstatus : null;
+    return { ok: true, state: 'followed', fstatus, response: payload };
   } catch (err) {
     const data = err && err.data ? __xhsClone(err.data) : null;
     const code = (data && (data.code !== undefined ? data.code : data.result && data.result.code)) ?? (err && err.code);
@@ -104,9 +121,18 @@ async function readCurrentProfileHref(page, userId) {
     }
 }
 
-async function readFollowStatus(page, retries = VERIFY_RETRIES) {
+/**
+ * Read `fstatus` from the store, retrying while the page is still hydrating.
+ *
+ * `awaitFollowing` also keeps polling once hydrated but the relation still
+ * reads a non-following state: after a successful follow the SPA can hold the
+ * pre-follow `userPageData` for a moment, so a single read races the refresh.
+ */
+async function readFollowStatus(page, retries = VERIFY_RETRIES, awaitFollowing = false) {
     let result = requireActionResult(await page.evaluate(buildReadStatusScript()), 'follow-status');
-    for (let i = 0; i < retries && result.ok && !result.hydrated; i += 1) {
+    for (let i = 0; i < retries && result.ok; i += 1) {
+        const settled = result.hydrated && (!awaitFollowing || isFollowingState(result.fstatus));
+        if (settled) break;
         await page.wait({ time: VERIFY_WAIT_SECONDS });
         result = requireActionResult(await page.evaluate(buildReadStatusScript()), 'follow-status');
     }
@@ -121,6 +147,28 @@ async function readFollowStatus(page, retries = VERIFY_RETRIES) {
         );
     }
     return typeof result.fstatus === 'string' ? result.fstatus : null;
+}
+
+/**
+ * Re-read the relation from a genuinely fresh profile render.
+ *
+ * `page.goto(<same url>)` is a soft navigation in this SPA: the profile
+ * component never remounts, so `userPageData` keeps the pre-follow snapshot
+ * and the relation reads `none` forever (observed 2026-09-05: a follow that
+ * had actually landed was reported as a failure). Bouncing through /explore
+ * unmounts it, so coming back forces a real refetch.
+ */
+async function refetchFollowStatus(page, profileUrl) {
+    let fstatus = null;
+    for (let round = 0; round < REFETCH_ROUNDS; round += 1) {
+        await page.goto('https://www.xiaohongshu.com/explore');
+        await page.wait({ time: VERIFY_WAIT_SECONDS });
+        await page.goto(profileUrl);
+        await page.wait({ time: PROFILE_SETTLE_MS / 1000 });
+        fstatus = await readFollowStatus(page, VERIFY_RETRIES, true);
+        if (isFollowingState(fstatus)) return fstatus;
+    }
+    return fstatus;
 }
 
 export function isFollowingState(fstatus) {
@@ -144,7 +192,7 @@ cli({
             help: 'User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL',
         },
     ],
-    columns: ['ok', 'user_id', 'already_following', 'status', 'url'],
+    columns: ['ok', 'user_id', 'already_following', 'status', 'verified', 'url'],
     func: async (page, kwargs) => {
         if (!page) {
             throw new CommandExecutionError('Browser session required for xiaohongshu follow');
@@ -158,7 +206,7 @@ cli({
 
             const before = await readFollowStatus(page);
             if (isFollowingState(before)) {
-                return [{ ok: true, user_id: userId, already_following: true, status: 'already-following', url }];
+                return [{ ok: true, user_id: userId, already_following: true, status: 'already-following', verified: true, url }];
             }
 
             const result = requireActionResult(await page.evaluate(buildFollowScript(userId)), 'follow-action');
@@ -172,18 +220,31 @@ cli({
                 throw new CommandExecutionError(`xiaohongshu/follow failed: ${detail}`);
             }
 
-            // Verify: reload the profile and read the relation again. The
-            // store's own userPageData is not updated by toFollow.
-            await page.goto(url);
-            await page.wait({ time: PROFILE_SETTLE_MS / 1000 });
-            const after = await readFollowStatus(page);
+            // The follow API answers with the resulting relation; that beats
+            // anything read back off the page.
+            let after = typeof result.fstatus === 'string' ? result.fstatus : null;
             if (!isFollowingState(after)) {
-                throw new CommandExecutionError(
-                    `xiaohongshu/follow failed: follow request returned but the relation still reads ${JSON.stringify(after)} after reload`,
-                    'The account may be rate-limited or the request was rejected silently; check the profile in the browser.',
+                after = await refetchFollowStatus(page, url);
+            }
+            const verified = isFollowingState(after);
+            if (!verified) {
+                // The write was accepted; only the read-back is inconclusive
+                // (xhs relation propagation lags, and the SPA serves a cached
+                // profile). Never downgrade that to a failure — a retry of a
+                // non-idempotent write is worse than an unverified success.
+                process.stderr.write(`${UNVERIFIED_MARKER}\n`);
+                process.stderr.write(
+                    `xiaohongshu/follow: the follow request was accepted but the relation still reads ${JSON.stringify(after)}; verify ${url} in the browser before retrying.\n`,
                 );
             }
-            return [{ ok: true, user_id: userId, already_following: false, status: 'followed', url }];
+            return [{
+                ok: true,
+                user_id: userId,
+                already_following: false,
+                status: verified ? 'followed' : 'followed-unverified',
+                verified,
+                url,
+            }];
         }
         catch (err) {
             if (err instanceof CliError) throw err;
