@@ -102,6 +102,7 @@ opencli bilibili hot -v
 
 - `opencli bilibili feed` without `uid` reads your following feed
 - `opencli bilibili feed <uid-or-name>` reads a specific user's dynamics
+- `feed`, `search`, `user-videos` and `video` also emit machine-readable columns next to the display ones: `duration_sec` (seconds), `plays`/`likes`/`danmaku` (numbers, `万`/`亿` text parsed), `pub_ts`/`created_ts`/`pubdate_ts` (unix seconds), plus `bvid`, `cover`, `mid` and `face`. The display columns (`time`, `date`, `publish_time`, `duration`, `score`, `author`) keep their old meaning and format
 - `opencli bilibili favorite` defaults to the first favorite folder when `--fid` is omitted
 - `feed-detail` expects the dynamic ID from a `https://t.bilibili.com/<id>` URL
 - `comments` emits `rpid`; pass a top-level row's `rpid` to `comments --parent` to read its reply thread
