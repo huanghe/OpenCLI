@@ -65,7 +65,7 @@ describe('twitter tweets helpers', () => {
         expect(cmd?.columns).toEqual([
             'id', 'author', 'created_at', 'is_retweet', 'text', 'likes',
             'retweets', 'replies', 'views', 'url', 'has_media', 'media_urls',
-            'media_posters', 'quoted_tweet',
+            'media_posters', 'media_durations', 'quoted_tweet',
         ]);
         expect(buildUserTweetsUrl('query', '42', 20, 'cursor')).toContain('/UserTweets');
     });

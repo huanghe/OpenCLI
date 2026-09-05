@@ -36276,7 +36276,8 @@
       "url",
       "has_media",
       "media_urls",
-      "media_posters"
+      "media_posters",
+      "media_durations"
     ],
     "type": "js",
     "modulePath": "twitter/bookmark-folder.js",
@@ -36363,7 +36364,8 @@
       "url",
       "has_media",
       "media_urls",
-      "media_posters"
+      "media_posters",
+      "media_durations"
     ],
     "type": "js",
     "modulePath": "twitter/bookmarks.js",
@@ -36782,7 +36784,8 @@
       "url",
       "has_media",
       "media_urls",
-      "media_posters"
+      "media_posters",
+      "media_durations"
     ],
     "type": "js",
     "modulePath": "twitter/likes.js",
@@ -37081,16 +37084,19 @@
     "columns": [
       "id",
       "author",
+      "author_avatar",
       "bio",
       "text",
       "likes",
       "retweets",
       "replies",
+      "views",
       "created_at",
       "url",
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet"
     ],
@@ -37541,6 +37547,7 @@
     "columns": [
       "id",
       "author",
+      "author_avatar",
       "bio",
       "text",
       "created_at",
@@ -37550,6 +37557,7 @@
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet",
       "author_verified"
@@ -37593,14 +37601,17 @@
     "columns": [
       "id",
       "author",
+      "author_avatar",
       "bio",
       "text",
       "likes",
       "retweets",
+      "views",
       "url",
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet",
       "author_verified"
@@ -37659,6 +37670,7 @@
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet",
       "author_verified"
@@ -37747,6 +37759,7 @@
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "quoted_tweet"
     ],
     "type": "js",
