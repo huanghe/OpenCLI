@@ -102,14 +102,21 @@ cli({
         // Get category
         const category = microformat.category || '';
 
-        // Get channel subscriber count if available
+        // Get channel subscriber count + channel avatar if available.
+        // Both live on the same videoOwnerRenderer node; thumbnails are
+        // ordered smallest-first, so the last one is the largest.
         let subscribers = '';
+        let channelAvatar = '';
         try {
           if (contents) {
             for (const c of contents) {
-              const owner = c.videoSecondaryInfoRenderer?.owner
-                ?.videoOwnerRenderer?.subscriberCountText?.simpleText;
-              if (owner) { subscribers = owner; break; }
+              const ownerRenderer = c.videoSecondaryInfoRenderer?.owner?.videoOwnerRenderer;
+              if (!ownerRenderer) continue;
+              const subs = ownerRenderer.subscriberCountText?.simpleText;
+              if (subs && !subscribers) subscribers = subs;
+              const avatar = ownerRenderer.thumbnail?.thumbnails?.slice(-1)?.[0]?.url;
+              if (avatar && !channelAvatar) channelAvatar = avatar;
+              if (subscribers && channelAvatar) break;
             }
           }
         } catch {}
@@ -129,6 +136,7 @@ cli({
           views: details.viewCount || '',
           likes,
           subscribers,
+          channelAvatar,
           duration: details.lengthSeconds ? details.lengthSeconds + 's' : '',
           publishDate,
           category,
