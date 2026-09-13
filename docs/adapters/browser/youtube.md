@@ -45,10 +45,20 @@ opencli youtube unsubscribe "UCxxxxxxxxxxxxxx"
 opencli youtube comment "https://www.youtube.com/watch?v=xxx" "Great video!" --execute
 ```
 
-> Note: `youtube comment` refuses to post unless `--execute` is passed, and never retries. When
-> YouTube accepts the write but returns no comment id, the row is still `status: posted-unverified`
-> with `verified: false` and a `COMMENT_UNVERIFIED` line on stderr — treat that as "sent, go check the
-> video", not as a failure to retry. On success `url` is the comment permalink (`watch?v=<id>&lc=<comment_id>`).
+> Note: `youtube comment` refuses to post unless `--execute` is passed, and never retries the write.
+> **A 2xx from YouTube does not mean the comment is live** — it can answer 200 with a perfectly
+> usable comment id for a comment it silently withholds (observed 2026-09-13: a video that still
+> read "0 comments" afterwards). So the id the write returns is informational only; what sets
+> `verified` is reading the video's comment list back and finding that id there. When the comment
+> cannot be seen in the list — or no id came back at all — the row is `status: posted-unverified`
+> with `verified: false` and a `COMMENT_UNVERIFIED` line on stderr, and `url` stays the plain video
+> URL rather than an `&lc=` permalink that would point at a comment nobody can see. Treat that as
+> "sent, go check the video", not as a failure to retry. Only a verified row gets the permalink
+> (`watch?v=<id>&lc=<comment_id>`).
+>
+> A comment that is live but absent from the list we read would also be reported as unverified. That
+> asymmetry is deliberate: an unverified success costs you one look at the video, while a false
+> success makes you believe a comment landed when it did not.
 
 ## Prerequisites
 
