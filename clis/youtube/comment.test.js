@@ -1,0 +1,181 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ArgumentError, AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
+
+const { mockPrepare, mockReadSapisid } = vi.hoisted(() => ({
+  mockPrepare: vi.fn(),
+  mockReadSapisid: vi.fn(),
+}));
+
+vi.mock('./utils.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  prepareYoutubeApiPage: mockPrepare,
+  readYoutubeSapisid: mockReadSapisid,
+}));
+
+import { getRegistry } from '@jackwener/opencli/registry';
+import { findKeyDeep } from './utils.js';
+import { buildCommentScript, UNVERIFIED_MARKER } from './comment.js';
+
+const VIDEO_ID = 'dQw4w9WgXcQ';
+const TEXT = 'nice video 👍';
+
+describe('youtube comment', () => {
+  const command = getRegistry().get('youtube/comment');
+  const page = { evaluate: vi.fn() };
+  let stderr;
+
+  beforeEach(() => {
+    mockPrepare.mockReset().mockResolvedValue(undefined);
+    mockReadSapisid.mockReset().mockResolvedValue('sapisid-value');
+    page.evaluate.mockReset();
+    stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderr.mockRestore();
+  });
+
+  it('registers as a write command with every returned key listed in columns', () => {
+    expect(command.access).toBe('write');
+    expect(command.columns).toEqual(['status', 'comment_id', 'url', 'message', 'verified']);
+  });
+
+  it('refuses to post without --execute and never touches the browser', async () => {
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT })).rejects.toThrow(/--execute/);
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT })).rejects.toBeInstanceOf(ArgumentError);
+    expect(mockPrepare).not.toHaveBeenCalled();
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty comment before any navigation', async () => {
+    await expect(command.func(page, { url: VIDEO_ID, text: '   ', execute: true })).rejects.toBeInstanceOf(ArgumentError);
+    expect(mockPrepare).not.toHaveBeenCalled();
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('rejects targets that do not resolve to an 11-char video id', async () => {
+    await expect(command.func(page, { url: 'https://www.youtube.com/@handle', text: TEXT, execute: true }))
+      .rejects.toBeInstanceOf(ArgumentError);
+    await expect(command.func(page, { url: 'not-a-video-id', text: TEXT, execute: true }))
+      .rejects.toBeInstanceOf(ArgumentError);
+    expect(mockPrepare).not.toHaveBeenCalled();
+  });
+
+  it('accepts a full watch URL and extracts the video id', async () => {
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'Ugx_abc' });
+    const rows = await command.func(page, { url: `https://www.youtube.com/watch?v=${VIDEO_ID}&t=42`, text: TEXT, execute: true });
+    expect(rows[0].url).toBe(`https://www.youtube.com/watch?v=${VIDEO_ID}&lc=Ugx_abc`);
+    expect(String(page.evaluate.mock.calls[0][0])).toContain(JSON.stringify(VIDEO_ID));
+  });
+
+  it('throws AuthRequiredError when the SAPISID cookie is missing', async () => {
+    mockReadSapisid.mockResolvedValueOnce(null);
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toBeInstanceOf(AuthRequiredError);
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('maps an in-page auth failure to AuthRequiredError', async () => {
+    page.evaluate.mockResolvedValueOnce({ error: 'auth', message: 'Not logged in' });
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toBeInstanceOf(AuthRequiredError);
+  });
+
+  it('maps HTTP / layout failures to CommandExecutionError with the page message', async () => {
+    page.evaluate.mockResolvedValueOnce({ error: 'http', message: 'No comment section found — comments may be disabled' });
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true }))
+      .rejects.toThrow(/comments may be disabled/);
+    page.evaluate.mockResolvedValueOnce({ error: 'config', message: 'YouTube config not found' });
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true }))
+      .rejects.toBeInstanceOf(CommandExecutionError);
+  });
+
+  it('fails typed on a malformed page result instead of inventing a row', async () => {
+    page.evaluate.mockResolvedValueOnce({ unexpected: true });
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toBeInstanceOf(CommandExecutionError);
+  });
+
+  it('posts exactly once and returns a verified row with the comment permalink', async () => {
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'UgxCommentId123' });
+
+    const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
+
+    expect(mockPrepare).toHaveBeenCalledTimes(1);
+    expect(page.evaluate).toHaveBeenCalledTimes(1);
+    const script = String(page.evaluate.mock.calls[0][0]);
+    expect(script).toContain("post('next', { videoId })");
+    expect(script).toContain("findKeyDeep(section.body, 'createCommentParams')");
+    expect(script).toContain("post('comment/create_comment'");
+    expect(script).toContain('commentText: ' + JSON.stringify(TEXT));
+    expect(script).toContain("'Authorization': authHash");
+    expect(rows).toEqual([{
+      status: 'success',
+      comment_id: 'UgxCommentId123',
+      url: `https://www.youtube.com/watch?v=${VIDEO_ID}&lc=UgxCommentId123`,
+      message: TEXT,
+      verified: true,
+    }]);
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  it('reports an accepted write without a comment id as posted-unverified, never as a failure', async () => {
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: null });
+
+    const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
+
+    expect(rows).toEqual([{
+      status: 'posted-unverified',
+      comment_id: null,
+      url: `https://www.youtube.com/watch?v=${VIDEO_ID}`,
+      message: TEXT,
+      verified: false,
+    }]);
+    expect(stderr.mock.calls[0][0]).toBe(`${UNVERIFIED_MARKER}\n`);
+    expect(stderr.mock.calls[1][0]).toContain(VIDEO_ID);
+  });
+
+  it('unwraps Browser Bridge envelopes before reading the result', async () => {
+    page.evaluate.mockResolvedValueOnce({ session: 'browser:default', data: { ok: true, commentId: 'UgxEnvelope' } });
+    const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
+    expect(rows[0].comment_id).toBe('UgxEnvelope');
+  });
+});
+
+describe('youtube comment injected script', () => {
+  it('inlines the SAPISID hash and deep-key helpers with JSON-encoded inputs', () => {
+    const script = buildCommentScript({ sapisid: 'sapi"sid', videoId: VIDEO_ID, text: 'a "quoted" line\nsecond' });
+    expect(script).toContain('async function getSapisidHash');
+    expect(script).toContain('function findKeyDeep');
+    expect(script).toContain(JSON.stringify('sapi"sid'));
+    expect(script).toContain(JSON.stringify('a "quoted" line\nsecond'));
+    expect(script).toContain('createCommentParams');
+    expect(script).toContain('/youtubei/v1/');
+  });
+});
+
+describe('findKeyDeep', () => {
+  it('finds the first matching leaf key through nested objects and arrays in document order', () => {
+    const payload = {
+      onResponseReceivedEndpoints: [
+        { reloadContinuationItemsCommand: { continuationItems: [
+          { commentsHeaderRenderer: { createRenderer: { commentSimpleboxRenderer: { submitButton: { buttonRenderer: {
+            serviceEndpoint: { createCommentEndpoint: { createCommentParams: 'PARAMS_1' } },
+          } } } } } },
+          { other: { createCommentParams: 'PARAMS_2' } },
+        ] } },
+      ],
+    };
+    expect(findKeyDeep(payload, 'createCommentParams')).toBe('PARAMS_1');
+  });
+
+  it('reads commentId from both the legacy action shape and the entity mutation shape', () => {
+    const legacy = { actions: [{ createCommentAction: { contents: { commentThreadRenderer: { comment: { commentRenderer: { commentId: 'Ugx_legacy' } } } } } }] };
+    const entity = { frameworkUpdates: { entityBatchUpdate: { mutations: [{ payload: { commentEntityPayload: { properties: { commentId: 'Ugx_entity' } } } }] } } };
+    expect(findKeyDeep(legacy, 'commentId')).toBe('Ugx_legacy');
+    expect(findKeyDeep(entity, 'commentId')).toBe('Ugx_entity');
+  });
+
+  it('returns undefined when the key is absent or the input is not an object', () => {
+    expect(findKeyDeep({ a: [{ b: 1 }] }, 'missing')).toBeUndefined();
+    expect(findKeyDeep(null, 'x')).toBeUndefined();
+    expect(findKeyDeep('string', 'length')).toBeUndefined();
+  });
+});

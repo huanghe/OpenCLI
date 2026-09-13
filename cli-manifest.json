@@ -48123,6 +48123,48 @@
   },
   {
     "site": "youtube",
+    "name": "comment",
+    "description": "Post a top-level comment on a YouTube video (requires --execute)",
+    "access": "write",
+    "domain": "www.youtube.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "url",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "YouTube video URL or video ID"
+      },
+      {
+        "name": "text",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Comment text to post"
+      },
+      {
+        "name": "execute",
+        "type": "boolean",
+        "required": false,
+        "help": "Actually post the comment. Without it the command refuses to write."
+      }
+    ],
+    "columns": [
+      "status",
+      "comment_id",
+      "url",
+      "message",
+      "verified"
+    ],
+    "type": "js",
+    "modulePath": "youtube/comment.js",
+    "sourceFile": "youtube/comment.js",
+    "navigateBefore": "https://www.youtube.com"
+  },
+  {
+    "site": "youtube",
     "name": "comments",
     "description": "Get YouTube video comments",
     "access": "read",
