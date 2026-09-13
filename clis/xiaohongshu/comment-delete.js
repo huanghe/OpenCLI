@@ -8,10 +8,17 @@
  * UI itself uses for POST /api/sns/web/v1/comment/delete, which is what gets the
  * `x-s` / `x-t` / `x-s-common` headers signed for us. See comment-helpers.js.
  *
- * Why not the UI: the web client hides "删除" inside a dropdown that only renders
- * on hover, which automation reliably fails to hit; the mobile app's long-press on
- * your own comment opens the note share sheet instead. Going through the API
- * sidesteps both.
+ * Why not the UI: on the web the "…" affordance only appears while the pointer is
+ * over the comment, and the menu then opens on *click* — not on hover. Treating it
+ * as a hover-expanded menu is the natural reading and it is wrong; it costs a long
+ * time to work out, because the menu keeps "closing" that never opened. The mobile
+ * app is no better: long-pressing your own comment opens the note share sheet
+ * rather than a delete option. Going through the API sidesteps both.
+ *
+ * (A working UI path does exist, established 2026-09-13: real hover to reveal the
+ * "…", left-click it, then click "删除评论" and confirm — for your own comment the
+ * menu holds only 删除评论/取消, so there is no report button to mis-click. Worth
+ * keeping as a fallback if the API route ever gets fenced off.)
  *
  * Deleting is the mirror image of posting where retries are concerned, and the
  * error handling is deliberately the opposite:
