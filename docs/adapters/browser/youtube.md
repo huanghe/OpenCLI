@@ -21,6 +21,7 @@
 | `opencli youtube unlike` | Remove like from a video |
 | `opencli youtube subscribe` | Subscribe to a channel |
 | `opencli youtube unsubscribe` | Unsubscribe from a channel |
+| `opencli youtube comment` | Post a top-level comment on a video (requires `--execute`) |
 
 ## Usage Examples
 
@@ -41,7 +42,13 @@ opencli youtube like "https://www.youtube.com/watch?v=xxx"
 opencli youtube unlike "videoId"
 opencli youtube subscribe "@ChannelHandle"
 opencli youtube unsubscribe "UCxxxxxxxxxxxxxx"
+opencli youtube comment "https://www.youtube.com/watch?v=xxx" "Great video!" --execute
 ```
+
+> Note: `youtube comment` refuses to post unless `--execute` is passed, and never retries. When
+> YouTube accepts the write but returns no comment id, the row is still `status: posted-unverified`
+> with `verified: false` and a `COMMENT_UNVERIFIED` line on stderr — treat that as "sent, go check the
+> video", not as a failure to retry. On success `url` is the comment permalink (`watch?v=<id>&lc=<comment_id>`).
 
 ## Prerequisites
 
