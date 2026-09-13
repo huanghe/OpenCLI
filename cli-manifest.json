@@ -45687,6 +45687,48 @@
   },
   {
     "site": "xiaohongshu",
+    "name": "comment",
+    "description": "在小红书笔记下发表评论（走页面自带的已签名请求层，需 --execute 才会真的发出）",
+    "access": "write",
+    "domain": "www.xiaohongshu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "note",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Full note URL with xsec_token (preferred), or a 24-char hex note ID"
+      },
+      {
+        "name": "text",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Comment text to post"
+      },
+      {
+        "name": "execute",
+        "type": "boolean",
+        "required": false,
+        "help": "Actually post the comment. Without it the command refuses to write."
+      }
+    ],
+    "columns": [
+      "status",
+      "comment_id",
+      "url",
+      "message",
+      "verified"
+    ],
+    "type": "js",
+    "modulePath": "xiaohongshu/comment.js",
+    "sourceFile": "xiaohongshu/comment.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "xiaohongshu",
     "name": "comments",
     "description": "获取小红书笔记评论（支持楼中楼子回复）",
     "access": "read",
