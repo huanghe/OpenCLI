@@ -40,106 +40,26 @@
  */
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CliError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { buildNoteUrl, parseNoteId, XHS_SIGNED_URL_HINT } from './note-helpers.js';
+import { parseNoteId } from './note-helpers.js';
+import {
+    buildSignedApiFinderJs,
+    COMMENT_PREFLIGHT_JS,
+    READ_XHS_ENVELOPE_JS,
+    READ_XHS_ERROR_JS,
+    resolveNoteTarget,
+} from './comment-helpers.js';
 import { isXiaohongshuHost, PINIA_ACCESS_JS } from './pinia-helpers.js';
 import { readXhsDetailPage } from './risk-control.js';
 import { unwrapEvaluateResult } from './shared.js';
 
 const COMMAND_LABEL = 'xiaohongshu/comment';
 const COMMENT_POST_PATH = '/api/sns/web/v1/comment/post';
-/** Bare note ids are 24 hex chars (e.g. 6aa65245000000002603bb74). */
-const NOTE_ID_RE = /^[a-f0-9]{24}$/i;
 export const UNVERIFIED_MARKER = 'COMMENT_UNVERIFIED';
 
-/**
- * Resolve the target into `{ noteId, noteUrl }`.
- *
- * A full signed URL is the reliable input — bare ids frequently fail to open
- * because the note page wants an `xsec_token` — but a bare id is still
- * accepted, since a caller that only kept the id has nothing better to pass.
- */
+/** Target resolution is shared with `comment-delete`; see comment-helpers.js. */
 export function resolveCommentTarget(raw) {
-    const input = String(raw ?? '').trim();
-    if (!input) {
-        throw new ArgumentError(`${COMMAND_LABEL}: note target cannot be empty`, XHS_SIGNED_URL_HINT);
-    }
-    if (/^https?:\/\//i.test(input)) {
-        // Rejects anything that is not an https xiaohongshu note URL carrying
-        // an xsec_token, with the shared "needs a signed URL" hint.
-        const noteUrl = buildNoteUrl(input, { commandName: 'xiaohongshu comment' });
-        const noteId = parseNoteId(input);
-        if (!NOTE_ID_RE.test(noteId)) {
-            throw new ArgumentError(`${COMMAND_LABEL}: cannot read a note id out of ${input}`, XHS_SIGNED_URL_HINT);
-        }
-        return { noteId, noteUrl };
-    }
-    if (!NOTE_ID_RE.test(input)) {
-        throw new ArgumentError(`${COMMAND_LABEL}: note target must be a full note URL with xsec_token, or a 24-character hex note id`, XHS_SIGNED_URL_HINT);
-    }
-    return { noteId: input, noteUrl: `https://www.xiaohongshu.com/explore/${input}` };
+    return resolveNoteTarget(raw, COMMAND_LABEL);
 }
-
-/** Browser-side: is the note page usable, or blocked / walled / gone? */
-export const COMMENT_PREFLIGHT_JS = `
-      (() => {
-        const bodyText = document.body?.innerText || ''
-        const loginWall = /登录后查看|请登录/.test(bodyText)
-        const notFound = /页面不见了|笔记不存在|无法浏览/.test(bodyText)
-        const securityBlock = /安全限制|访问链接异常/.test(bodyText)
-          || /website-login\\/error|error_code=300017|error_code=300031/.test(location.href)
-        return { pageUrl: location.href, securityBlock, loginWall, notFound }
-      })()
-`;
-
-/**
- * Browser-side prelude defining `__xhsFindCommentPost()`, which digs the
- * signed `comment/post` wrapper out of the webpack module graph.
- */
-const FIND_COMMENT_API_JS = `
-  const __xhsFindCommentPost = () => {
-    const chunk = window.webpackChunkxhs_pc_web;
-    if (!Array.isArray(chunk)) return null;
-    // Pushing a chunk whose module map is empty hands our callback the
-    // runtime's own __webpack_require__ and loads nothing.
-    let req = null;
-    try { chunk.push([['__opencli_comment__'], {}, (r) => { req = r; }]); } catch { return null; }
-    if (typeof req !== 'function') return null;
-    const NEEDLE = ${JSON.stringify(COMMENT_POST_PATH)};
-    // The wrapper reads: fn(body, opts) { opts.summary = '…'; return axios.post(NEEDLE, body, opts) }
-    const pick = (mod) => {
-      if (!mod || (typeof mod !== 'object' && typeof mod !== 'function')) return null;
-      let keys = [];
-      try { keys = Object.keys(mod); } catch { return null; }
-      for (const k of keys) {
-        let fn = null;
-        try { fn = mod[k]; } catch { continue; }
-        if (typeof fn !== 'function') continue;
-        let src = '';
-        try { src = String(fn); } catch { continue; }
-        if (src.indexOf(NEEDLE) !== -1 && src.indexOf('.post(') !== -1) return fn;
-      }
-      return null;
-    };
-    // Prefer modules webpack has already instantiated: evaluating one the page
-    // never loaded can have side effects we have no business triggering.
-    const cache = req.c || {};
-    for (const id of Object.keys(cache)) {
-      const hit = pick(cache[id] && cache[id].exports);
-      if (hit) return hit;
-    }
-    const factories = req.m || {};
-    for (const id of Object.keys(factories)) {
-      let src = '';
-      try { src = String(factories[id]); } catch { continue; }
-      if (src.indexOf(NEEDLE) === -1) continue;
-      let mod = null;
-      try { mod = req(id); } catch { continue; }
-      const hit = pick(mod);
-      if (hit) return hit;
-    }
-    return null;
-  };
-`;
 
 /**
  * Browser-side: post the comment. Returns `{ ok, comment_id, reason?, code?,
@@ -149,37 +69,28 @@ export function buildCommentScript({ noteId, content }) {
     return `
 (async () => {
   ${PINIA_ACCESS_JS}
-  ${FIND_COMMENT_API_JS}
+  ${buildSignedApiFinderJs(COMMENT_POST_PATH)}
+  ${READ_XHS_ENVELOPE_JS}
+  ${READ_XHS_ERROR_JS}
   if (__xhsLoggedOut()) return { ok: false, reason: 'login_wall' };
-  const postComment = __xhsFindCommentPost();
+  const postComment = __xhsFindSignedApi();
   if (!postComment) return { ok: false, reason: 'api_unavailable' };
   try {
-    const response = __xhsClone(await postComment({
+    const env = __xhsEnvelope(__xhsClone(await postComment({
       note_id: ${JSON.stringify(noteId)},
       content: ${JSON.stringify(content)},
       at_users: [],
-    }));
-    // Depending on the axios interceptor the body arrives unwrapped or still
-    // nested under a data property, so read both shapes (as follow.js does).
-    const payload = response && typeof response === 'object' ? response : {};
-    const inner = payload.data && typeof payload.data === 'object' ? payload.data : {};
-    const code = payload.code !== undefined ? payload.code : inner.code;
-    const success = payload.success !== undefined ? payload.success : inner.success;
-    const msg = payload.msg || payload.message || inner.msg || inner.message || '';
-    // A 2xx carrying a non-zero code is a rejected write, not a posted comment.
-    if ((code !== undefined && code !== null && code !== 0) || success === false) {
-      return { ok: false, reason: 'api_error', code: code === undefined ? null : code, message: String(msg || 'comment rejected') };
+    })));
+    if (env.rejected) {
+      return { ok: false, reason: 'api_error', code: env.code, message: env.msg || 'comment rejected' };
     }
-    const comment = (payload.comment && typeof payload.comment === 'object' ? payload.comment : null)
-      || (inner.comment && typeof inner.comment === 'object' ? inner.comment : null)
+    const comment = (env.payload.comment && typeof env.payload.comment === 'object' ? env.payload.comment : null)
+      || (env.inner.comment && typeof env.inner.comment === 'object' ? env.inner.comment : null)
       || {};
     const id = typeof comment.id === 'string' && comment.id ? comment.id : null;
     return { ok: true, comment_id: id };
   } catch (err) {
-    const data = err && err.data ? __xhsClone(err.data) : null;
-    const code = (data && (data.code !== undefined ? data.code : data.result && data.result.code)) ?? (err && err.code);
-    const message = (data && (data.msg || data.message)) || (err && (err.msg || err.message)) || String(err);
-    return { ok: false, reason: 'api_error', code: code === undefined ? null : code, message: String(message) };
+    return __xhsError(err);
   }
 })()
 `;

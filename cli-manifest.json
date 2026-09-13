@@ -45729,6 +45729,47 @@
   },
   {
     "site": "xiaohongshu",
+    "name": "comment-delete",
+    "description": "删除自己在小红书笔记下的评论（走页面自带的已签名请求层，需 --execute 才会真的删除）",
+    "access": "write",
+    "domain": "www.xiaohongshu.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "note",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Full note URL with xsec_token (preferred), or a 24-char hex note ID"
+      },
+      {
+        "name": "comment-id",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "The comment ID to delete (as printed by `xiaohongshu comment`)"
+      },
+      {
+        "name": "execute",
+        "type": "boolean",
+        "required": false,
+        "help": "Actually delete the comment. Without it the command refuses to write."
+      }
+    ],
+    "columns": [
+      "status",
+      "comment_id",
+      "note_id",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "xiaohongshu/comment-delete.js",
+    "sourceFile": "xiaohongshu/comment-delete.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "xiaohongshu",
     "name": "comments",
     "description": "获取小红书笔记评论（支持楼中楼子回复）",
     "access": "read",
