@@ -73,7 +73,22 @@ cli({
             }
 
             moreMenu.click();
-            await new Promise(r => setTimeout(r, 1000));
+
+            // Wait for the popup rather than sampling once after a flat 1s: on
+            // a cold call X was measured painting the menu items ~1s after the
+            // caret click, and a hidden or minimized tab clamps setTimeout to
+            // ~1s on top of that, so the old sleep decided on a coin flip. A
+            // false negative here is not just a failure — it reroutes the whole
+            // command to the parent conversation via retryOnParent.
+            const menuItemCount = () => document.querySelectorAll('[role="menuitem"]').length;
+            const menuItemsBefore = menuItemCount();
+            for (let i = 0; i < 20; i++) {
+                await new Promise(r => setTimeout(r, 250));
+                if (menuItemCount() <= menuItemsBefore) continue;
+                // One more tick so a half-painted popup is never read as final.
+                await new Promise(r => setTimeout(r, 250));
+                break;
+            }
 
             // Look for the "Hide reply" menu item. Menu items render at the
             // document root, not inside the article — scope is the open menu.
