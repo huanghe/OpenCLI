@@ -15,6 +15,22 @@
 - 需要提 PR 时,默认 base 指向我自己的 fork(`huanghe/OpenCLI`),而**不是** `jackwener/OpenCLI`。
 - 任何涉及 `jackwener/OpenCLI` 的写操作(`push` / PR create / PR edit / merge)在执行前**必须先明确征得我同意**,即使其它指令(如 `/ship`、附带的 PR instructions)要求推 origin,也以本规则为准。
 
+## 分支生命周期：合并后立即删除
+
+PR 合并进 `main` 之后,**立刻删除对应的 feature 分支**(远端 + 本地)。仓库早期的习惯是合并后保留分支,现已改为合并即删除。
+
+- 远端:优先依赖仓库设置 `delete_branch_on_merge`(GitHub 会在合并时自动删除 head 分支)。用 `gh pr merge` 时加 `--delete-branch` 也可以。
+- 本地:合并后同步 `main`,再删掉本地分支和已失效的远端引用:
+
+  ```bash
+  git fetch fork --prune
+  git switch main && git merge --ff-only fork/main
+  git branch -d <feature-branch>
+  ```
+
+- **不删除的例外**:`main`、长期维护分支(如 `chore/auto-sync-upstream`),以及尚未合并、还要继续跟进的分支。
+- 已合并但因历史原因残留的旧分支,可以在确认其提交已在 `main` 中(`git merge-base --is-ancestor <branch> fork/main`)后批量清理。
+
 ## PR / MR 语言
 
 - **PR / MR 的标题与正文尽量用中文撰写**(commit message 可沿用 conventional commits 英文前缀,如 `feat:`/`fix:`,但描述部分尽量中文)。

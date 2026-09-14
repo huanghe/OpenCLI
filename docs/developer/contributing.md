@@ -111,6 +111,13 @@ chore: bump vitest to v4
    ```
 4. Commit using conventional commit format
 5. Push and open a PR
+6. After the PR is merged, delete the feature branch — both the remote branch and your local copy:
+   ```bash
+   git fetch origin --prune
+   git switch main && git merge --ff-only origin/main
+   git branch -d feat/mysite-trending
+   ```
+   Long-lived branches (`main`, automated sync branches) are the only exception.
 
 If your PR adds a new adapter or changes user-facing commands, also verify:
 
