@@ -60,7 +60,20 @@ cli({
 
             // Open the more actions menu
             moreBtn.click();
-            await new Promise(r => setTimeout(r, 1000));
+
+            // Poll for the popup instead of sampling once after a flat 1s: on
+            // a cold call X was measured painting the menu items ~1s after the
+            // trigger click, and a hidden or minimized tab clamps setTimeout to
+            // ~1s on top of that, which put the old sleep right on the coin flip.
+            const menuItemCount = () => document.querySelectorAll('[role="menuitem"]').length;
+            const menuItemsBefore = menuItemCount();
+            for (let i = 0; i < 20; i++) {
+                await new Promise(r => setTimeout(r, 250));
+                if (menuItemCount() <= menuItemsBefore) continue;
+                // One more tick so a half-painted popup is never read as final.
+                await new Promise(r => setTimeout(r, 250));
+                break;
+            }
 
             // Find the Block menu item
             const menuItems = document.querySelectorAll('[role="menuitem"]');
@@ -77,19 +90,26 @@ cli({
             }
 
             blockItem.click();
-            await new Promise(r => setTimeout(r, 1000));
 
             // Confirm the block in the dialog
-            const confirmBtn = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+            let confirmBtn = null;
+            for (let i = 0; i < 20 && !confirmBtn; i++) {
+                await new Promise(r => setTimeout(r, 250));
+                confirmBtn = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+            }
             if (!confirmBtn) {
                 return { ok: false, message: 'Block confirmation dialog did not appear.' };
             }
             writeStarted = true;
             confirmBtn.click();
-            await new Promise(r => setTimeout(r, 1500));
 
-            // Verify
-            const verify = getPrimary()?.querySelector('[data-testid$="-unblock"]');
+            // Verify. Poll: the write has already been sent at this point, so a
+            // too-early read reports it unconfirmed on a block that did land.
+            let verify = null;
+            for (let i = 0; i < 20 && !verify; i++) {
+                await new Promise(r => setTimeout(r, 250));
+                verify = getPrimary()?.querySelector('[data-testid$="-unblock"]');
+            }
             if (verify) {
                 return { ok: true, message: 'Successfully blocked @${username}.' };
             } else {
