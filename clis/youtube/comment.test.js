@@ -62,7 +62,7 @@ describe('youtube comment', () => {
   });
 
   it('accepts a full watch URL and extracts the video id', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'Ugx_abc' });
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'Ugx_abc', visible: true, listRead: true });
     const rows = await command.func(page, { url: `https://www.youtube.com/watch?v=${VIDEO_ID}&t=42`, text: TEXT, execute: true });
     expect(rows[0].url).toBe(`https://www.youtube.com/watch?v=${VIDEO_ID}&lc=Ugx_abc`);
     expect(String(page.evaluate.mock.calls[0][0])).toContain(JSON.stringify(VIDEO_ID));
@@ -94,7 +94,7 @@ describe('youtube comment', () => {
   });
 
   it('posts exactly once and returns a verified row with the comment permalink', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'UgxCommentId123' });
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'UgxCommentId123', visible: true, listRead: true });
 
     const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
 
@@ -103,6 +103,9 @@ describe('youtube comment', () => {
     const script = String(page.evaluate.mock.calls[0][0]);
     expect(script).toContain("post('next', { videoId })");
     expect(script).toContain("findKeyDeep(section.body, 'createCommentParams')");
+    // The read-back is what decides `verified`, so it must be in the script.
+    expect(script).toContain('async function listedComments()');
+    expect(script).toContain('commentEntityPayload');
     expect(script).toContain("post('comment/create_comment'");
     expect(script).toContain('commentText: ' + JSON.stringify(TEXT));
     expect(script).toContain("'Authorization': authHash");
@@ -117,7 +120,7 @@ describe('youtube comment', () => {
   });
 
   it('reports an accepted write without a comment id as posted-unverified, never as a failure', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: null });
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: null, visible: false, listRead: false });
 
     const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
 
@@ -132,10 +135,49 @@ describe('youtube comment', () => {
     expect(stderr.mock.calls[1][0]).toContain(VIDEO_ID);
   });
 
+  it('reports a silently withheld comment as posted-unverified even though an id came back', async () => {
+    // Regression, observed 2026-09-13 on video _azfxIliMgI: create_comment
+    // answered 200 with a real-looking id, and the comment was never visible.
+    // A returned id is not proof of publication; the read-back is.
+    page.evaluate.mockResolvedValueOnce({
+      ok: true,
+      commentId: 'UgxDsuScjOf_N_l8Cu94AaABAg',
+      visible: false,
+      listRead: true,
+    });
+
+    const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
+
+    expect(rows).toEqual([{
+      status: 'posted-unverified',
+      // The id is still reported so the caller can look it up...
+      comment_id: 'UgxDsuScjOf_N_l8Cu94AaABAg',
+      // ...but `url` must NOT be an &lc= permalink to a comment nobody can see.
+      url: `https://www.youtube.com/watch?v=${VIDEO_ID}`,
+      message: TEXT,
+      verified: false,
+    }]);
+    expect(stderr.mock.calls[0][0]).toBe(`${UNVERIFIED_MARKER}\n`);
+    expect(stderr.mock.calls[1][0]).toMatch(/not in the video's comment list/);
+  });
+
+  it('reports posted-unverified when the comment list could not be read back at all', async () => {
+    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'UgxUnread', visible: false, listRead: false });
+
+    const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
+
+    expect(rows[0]).toMatchObject({ status: 'posted-unverified', comment_id: 'UgxUnread', verified: false });
+    expect(stderr.mock.calls[1][0]).toMatch(/could not be read back/);
+  });
+
   it('unwraps Browser Bridge envelopes before reading the result', async () => {
-    page.evaluate.mockResolvedValueOnce({ session: 'browser:default', data: { ok: true, commentId: 'UgxEnvelope' } });
+    page.evaluate.mockResolvedValueOnce({
+      session: 'browser:default',
+      data: { ok: true, commentId: 'UgxEnvelope', visible: true, listRead: true },
+    });
     const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
     expect(rows[0].comment_id).toBe('UgxEnvelope');
+    expect(rows[0].verified).toBe(true);
   });
 });
 
