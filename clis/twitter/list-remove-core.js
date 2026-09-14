@@ -135,7 +135,19 @@ export async function listRemoveUser(page, kwargs) {
                 const caret = await waitFor(() => findOne('[data-testid="userActions"]'));
                 if (!caret) return { ok: false, message: 'Could not find user actions (…) button' };
                 caret.click();
-                await sleep(600);
+                // Poll for the popup: on a cold call X was measured painting
+                // the menu items ~1s after the trigger click, and a hidden or
+                // minimized tab clamps setTimeout to ~1s on top of that — a flat
+                // 600ms sleep read an empty menu and reported the item missing.
+                const menuItemCount = () => document.querySelectorAll('[role="menuitem"]').length;
+                const menuItemsBefore = menuItemCount();
+                for (let i = 0; i < 20; i++) {
+                    await sleep(250);
+                    if (menuItemCount() <= menuItemsBefore) continue;
+                    // One more tick so a half-painted popup is never read as final.
+                    await sleep(250);
+                    break;
+                }
                 const menuItems = Array.from(document.querySelectorAll('[role="menuitem"]'));
                 const addToListItem = menuItems.find(el => /add\\/remove|从列表|列表|add to list|add or remove/i.test(el.innerText));
                 if (!addToListItem) return { ok: false, message: 'Could not find "Add/remove from Lists" menu item' };
