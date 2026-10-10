@@ -51,7 +51,7 @@ if (!isIgnorableDaemonPortEnv(process.env.OPENCLI_DAEMON_PORT)) {
 }
 
 // Fast path: --version (only when it's the top-level intent, not passed to a subcommand)
-// e.g. `opencli --version` or `opencli -V`, but NOT `opencli gh --version`
+// e.g. `opencli --version` or `opencli -V`, but NOT `opencli browser --version`
 if (argv[0] === '--version' || argv[0] === '-V') {
   process.stdout.write(PKG_VERSION + '\n');
   process.exit(EXIT_CODES.SUCCESS);

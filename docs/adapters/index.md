@@ -171,18 +171,3 @@ Run `opencli list` for the live registry.
 | **[jianyu](./browser/jianyu.md)**                 | `search` `detail`                                                                                                                              | 🔐 Browser   |
 | **[taobao](./browser/taobao.md)**                 | `search` `detail` `reviews` `cart` `add-cart`                                                                                                  | 🔐 Browser   |
 | **[minimax](./browser/minimax.md)**               | `music`                                                                                                                                        | 🔑 MiniMax API |
-
-## Desktop Adapters
-
-| App                                      | Description                   | Commands                                                                                                    |
-| ---------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **[Cursor](./desktop/cursor.md)**           | Control Cursor IDE            | `status` `send` `read` `new` `dump` `composer` `model` `extract-code` `ask` `screenshot` `history` `export` |
-| **[Codex](./desktop/codex.md)**             | Drive OpenAI Codex CLI agent  | `status` `send` `read` `new` `extract-diff` `model` `ask` `screenshot` `history` `export` `pin` `unpin` `archive` `rename` |
-| **[Trae CN](./desktop/trae-cn.md)**         | Control Trae CN tasks         | `setup` `targets` `status` `new` `send` `read` `ask` `approve` `model` `select-model` `activity` `watch` `dump` `screenshot` `export` |
-| **[Antigravity](./desktop/antigravity.md)** | Control Antigravity Ultra     | `status` `send` `read` `new` `dump` `extract-code` `model` `watch`                                          |
-| **[ChatGPT App](./desktop/chatgpt-app.md)** | Automate ChatGPT macOS app    | `status` `new` `send` `read` `ask` `model`                                                                  |
-| **[ChatWise](./desktop/chatwise.md)**       | Multi-LLM client              | `status` `new` `send` `read` `ask` `model` `history` `export` `screenshot`                                  |
-| **[Qoder](./desktop/qoder.md)**             | Control Qoder IDE             | `status` `new` `history` `send` `ask` `read` `search` `settings` `knowledge` `marketplace` `credits` `view-all` `add-workspace` `account` `more-actions` `prompt-enhance` `open-editor` `sidebar-toggle` `open-panel` |
-| **[Discord](./desktop/discord.md)**         | Desktop messages & channels   | `status` `send` `read` `channels` `servers` `goto` `threads` `thread-read` `search` `members`               |
-| **[Doubao App](./desktop/doubao-app.md)**   | Doubao AI desktop app via CDP | `status` `new` `send` `read` `ask` `screenshot` `dump`                                                      |
-| **[Trae SOLO](./desktop/trae-solo.md)**      | Trae SOLO desktop state       | `status` `history` `model` `mode` `automation-list` `skill-*` `state-*` `task-fs-*`                         |

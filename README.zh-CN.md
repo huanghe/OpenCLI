@@ -1,7 +1,7 @@
 # OpenCLI
 
 > **把任意网站变成 CLI & 在你的登录态浏览器上跑 Browser Use。**
-> 把网站、浏览器会话、Electron 应用和本地工具，统一变成适合人类与 AI Agent 使用的确定性接口。
+> 把网站和浏览器会话，统一变成适合人类与 AI Agent 使用的确定性接口。
 > 或者在任意页面上跑 Browser Use —— 导航、填表单、点击、抓取、自动化。
 
 [![English](https://img.shields.io/badge/docs-English-1D4ED8?style=flat-square)](./README.md)
@@ -9,13 +9,13 @@
 [![Node.js Version](https://img.shields.io/node/v/@jackwener/opencli?style=flat-square)](https://nodejs.org)
 [![License](https://img.shields.io/npm/l/@jackwener/opencli?style=flat-square)](./LICENSE)
 
+OpenCLI 是 **general-purpose browser automation CLI**，可以作为 **agent-browser 的替代工具**。导航、检查页面、点击、填表、提取和截图无需 site adapter；内置 adapters 为重复任务提供可复用的确定性命令。参见 [OpenCLI vs agent-browser 与迁移指南](./docs/zh/guide/agent-browser-alternative.md)。
+
 OpenCLI 可以用同一套 CLI 做三类事情：
 
 - **直接使用现成适配器**：B站、知乎、小红书、Twitter/X、Reddit、HackerNews 等 [100+ 站点](#内置命令) 开箱即用。
 - **让 AI Agent 操作任意网站**：在你的 AI Agent（Claude Code、Cursor 等）中安装 `opencli-browser` skill，Agent 就能用你的已登录浏览器导航、点击、输入/填充、提取任意网页内容。
 - **把新网站写成 CLI**：用 `opencli browser` 原语 + `opencli-adapter-author` skill，从站点侦察、API 发现、字段解码到 `opencli browser verify` 一条龙。
-
-除了网站能力，OpenCLI 也可以通过桌面端适配器控制 Cursor、Trae CN、Codex、Antigravity、ChatGPT、Trae SOLO 等 Electron 应用。
 
 ## 快速开始
 
@@ -151,7 +151,7 @@ Agent 在内部自动处理所有 `opencli browser` 命令——你只需用自�
 | `OPENCLI_SITE_SESSION` | adapter 默认值 | 设为 `ephemeral` 或 `persistent`，覆盖浏览器型 adapter 命令的 `siteSession` 元数据。`ephemeral` 会在命令结束时关闭一次性自动化窗口；`persistent` 会复用该站点的 session。命令级 `--site-session` 优先。 |
 | `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `45` | 浏览器连接超时（秒） |
 | `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | 单个浏览器命令超时（秒） |
-| `OPENCLI_CDP_ENDPOINT` | — | Chrome DevTools Protocol 端点，用于远程浏览器或 Electron 应用 |
+| `OPENCLI_CDP_ENDPOINT` | — | Chrome DevTools Protocol 端点，用于远程浏览器 |
 | `OPENCLI_CDP_TARGET` | — | 按 URL 子串过滤 CDP target（如 `detail.1688.com`） |
 | `OPENCLI_VERBOSE` | `false` | 启用详细日志（`-v` 也可以） |
 | `DEBUG_SNAPSHOT` | — | 设为 `1` 输出 DOM 快照调试信息 |
@@ -185,8 +185,6 @@ Browser Bridge daemon 与扩展的通信端口固定为 `localhost:19825`，不�
 | **midjourney** | `login` `whoami` `settings` `quota` `generate` `describe` `history` `status` `action` `download` |
 
 精选清单 — **[→ 查看全部 100+ 站点和命令](./docs/adapters/index.md)**（小红书 / B站 / 知乎 / Twitter / Reddit / 抖音 / 微博 / 微信读书 / 小宇宙 / 1688 / 夸克 / Spotify / 牛客 / arxiv / Chess.com / Bilibili / 等）。
-
-**桌面应用适配器**（Electron，通过 CDP）：Cursor / Trae CN / Codex / Antigravity / ChatGPT App / ChatWise / Qoder / Discord / Doubao / Trae SOLO — 详见 [`docs/adapters/desktop/`](./docs/adapters/desktop/)。
 
 ## 下载支持
 
@@ -259,8 +257,6 @@ opencli weixin download --url "https://mp.weixin.qq.com/s/xxx" --output ./weixin
 
 `opencli xiaoyuzhou download` 和 `transcript` 需要本地小宇宙凭证：`~/.opencli/xiaoyuzhou.json`。
 
-
-
 ## 输出格式
 
 所有内置命令都支持 `--format` / `-f`，可选值为 `table`、`json`、`yaml`、`md`、`csv`。
@@ -318,12 +314,9 @@ opencli plugin uninstall my-tool                            # 卸载
   - 检查 daemon 状态：`curl localhost:19825/status`
   - 查看扩展日志：`curl localhost:19825/logs`
 
-
 ## Star History
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=jackwener/opencli&type=Date)](https://star-history.dera.page/#jackwener/opencli&Date)
-
-
 
 ## License
 

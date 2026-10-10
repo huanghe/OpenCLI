@@ -1,7 +1,7 @@
 # OpenCLI
 
 > **Convert any website into a CLI & run Browser Use on your logged-in Chrome.**
-> Turn websites, browser sessions, Electron apps, and local tools into deterministic interfaces for humans and AI agents.
+> Turn websites and browser sessions into deterministic interfaces for humans and AI agents.
 > Or run Browser Use against any page — navigate, fill forms, click, extract, automate.
 
 [![中文文档](https://img.shields.io/badge/docs-%E4%B8%AD%E6%96%87-0F766E?style=flat-square)](./README.zh-CN.md)
@@ -9,13 +9,13 @@
 [![Node.js Version](https://img.shields.io/node/v/@jackwener/opencli?style=flat-square)](https://nodejs.org)
 [![License](https://img.shields.io/npm/l/@jackwener/opencli?style=flat-square)](./LICENSE)
 
+OpenCLI is a **general-purpose browser automation CLI for AI agents** and an **agent-browser alternative**. Navigate, inspect, click, fill forms, extract, and screenshot websites without a site adapter. Built-in adapters add reusable, deterministic site commands. See [OpenCLI vs agent-browser and migration](./docs/guide/agent-browser-alternative.md).
+
 OpenCLI gives you one surface for three different kinds of automation:
 
 - **Use built-in adapters** for sites like Bilibili, Zhihu, Xiaohongshu, Reddit, HackerNews, Twitter/X, and [many more](#built-in-commands).
 - **Let AI Agents operate any website** — install the `opencli-browser` skill in your AI agent (Claude Code, Cursor, etc.), and it can navigate, click, type/fill, extract, and inspect any page through your logged-in browser via `opencli browser` primitives.
 - **Write new adapters** end-to-end with `opencli browser` + the `opencli-adapter-author` skill, which guides from first recon through field decoding, code, and `opencli browser verify`.
-
-It also provides **desktop app adapters** for Electron apps like Cursor, Trae CN, Codex, Antigravity, ChatGPT, and Trae SOLO.
 
 ## Quick Start
 
@@ -166,7 +166,7 @@ When the site you need is not yet covered, use the `opencli-adapter-author` skil
 | `OPENCLI_SITE_SESSION` | adapter default | Set to `ephemeral` or `persistent` to override `siteSession` metadata for browser-backed adapter commands. `ephemeral` closes the one-shot automation window when the command finishes; `persistent` reuses the site's session. Per-command `--site-session` takes precedence. |
 | `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `45` | Seconds to wait for browser connection |
 | `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | Seconds to wait for a single browser command |
-| `OPENCLI_CDP_ENDPOINT` | — | Chrome DevTools Protocol endpoint for remote browser or Electron apps |
+| `OPENCLI_CDP_ENDPOINT` | — | Chrome DevTools Protocol endpoint for remote browsers |
 | `OPENCLI_CDP_TARGET` | — | Filter CDP targets by URL substring (e.g. `detail.1688.com`) |
 | `OPENCLI_VERBOSE` | `false` | Enable verbose logging (`-v` flag also works) |
 | `DEBUG_SNAPSHOT` | — | Set to `1` for DOM snapshot debug output |
@@ -196,8 +196,6 @@ When the site you need is not yet covered, use the `opencli-adapter-author` skil
 | **midjourney** | `login` `whoami` `settings` `quota` `generate` `describe` `history` `status` `action` `download` |
 
 Curated highlights — **[→ see all 100+ supported sites & commands](./docs/adapters/index.md)** (douyin / weibo / spotify / 1688 / quark / nowcoder / google-scholar / hupu / xianyu / weread / weread-official / xiaoyuzhou / Chess.com / and more).
-
-**Desktop app adapters** (Electron, via CDP): Cursor / Trae CN / Codex / Antigravity / ChatGPT App / ChatWise / Qoder / Discord / Doubao / Trae SOLO — see [`docs/adapters/desktop/`](./docs/adapters/desktop/).
 
 ## Download Support
 

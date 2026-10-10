@@ -127,36 +127,7 @@ export function wrapCommaList(
   return lines.join('\n');
 }
 
-/**
- * Adapter category for help-text grouping.
- *
- * - `site`: web site adapter (real DNS-style domain, e.g. `www.bilibili.com`)
- * - `app`: desktop app adapter (Electron/osascript, signaled by `domain: 'localhost'`
- *   or other non-DNS/local endpoint string like `'127.0.0.1'` / `'doubao-app'`)
- *
- * Classification is derived from the adapter's `domain` field — no new schema
- * required. Adapters without a `domain` field default to `site` (most are
- * public web scrapers).
- */
-export type AdapterKind = 'site' | 'app';
-
-function isLocalIpDomain(domain: string): boolean {
-  if (domain === '::1' || domain === '[::1]') return true;
-  const parts = domain.split('.');
-  if (parts.length !== 4) return false;
-  return parts.every(part => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255)
-    && Number(parts[0]) === 127;
-}
-
-export function classifyAdapter(domain: string | undefined): AdapterKind {
-  if (!domain) return 'site';
-  if (isLocalIpDomain(domain)) return 'app';
-  return domain.includes('.') ? 'site' : 'app';
-}
-
 export interface RootAdapterGroups {
-  /** Desktop-app adapters (chatgpt-app, chatwise, codex, ...) */
-  apps: readonly string[];
   /** Web-site adapters (bilibili, dianping, ...) */
   sites: readonly string[];
 }
@@ -171,10 +142,9 @@ function formatGroupSection(label: string, names: readonly string[]): string[] {
 }
 
 export function formatRootAdapterHelpText(groups: RootAdapterGroups): string {
-  const total = groups.apps.length + groups.sites.length;
+  const total = groups.sites.length;
   if (total === 0) return '';
   const lines: string[] = [''];
-  lines.push(...formatGroupSection('App adapters', groups.apps));
   lines.push(...formatGroupSection('Site adapters', groups.sites));
   lines.push("Run 'opencli list' for full command details, or 'opencli <site> --help' to inspect one site.");
   lines.push("Agent tip: use 'opencli <site> --help -f yaml' for all command args/options in one structured response.");
@@ -474,7 +444,7 @@ function compactCommand(cmd: CliCommand): Record<string, unknown> {
 }
 
 export function rootHelpData(program: Command, groups: RootAdapterGroups): Record<string, unknown> {
-  const adapterNames = new Set<string>([...groups.apps, ...groups.sites]);
+  const adapterNames = new Set<string>([...groups.sites]);
   const commands = program.commands
     .filter(command => !adapterNames.has(command.name()))
     .map(command => ({
@@ -487,10 +457,6 @@ export function rootHelpData(program: Command, groups: RootAdapterGroups): Recor
     name: program.name(),
     description: program.description(),
     commands,
-    app_adapters: {
-      count: groups.apps.length,
-      apps: [...groups.apps].sort(sortLocale),
-    },
     site_adapters: {
       count: groups.sites.length,
       sites: [...groups.sites].sort(sortLocale),

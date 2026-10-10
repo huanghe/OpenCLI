@@ -17,7 +17,7 @@
  *  75   Temporary failure, retry later  (TimeoutError)   EX_TEMPFAIL
  *  77   Permission denied / auth needed (AuthRequiredError)
  *  78   Configuration error             (ConfigError)
- * 130   Interrupted by Ctrl-C           (set by tui.ts SIGINT handler)
+ * 130   Interrupted by Ctrl-C
  */
 import type { ObservationTraceReceipt } from './observation/events.js';
 

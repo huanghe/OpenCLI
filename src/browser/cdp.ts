@@ -1,5 +1,5 @@
 /**
- * CDP client — implements IPage by connecting directly to a Chrome/Electron CDP WebSocket.
+ * CDP client — implements IPage by connecting directly to a Chrome CDP WebSocket.
  *
  * Fixes applied:
  * - send() now has a 30s timeout guard (P0 #4)
@@ -17,7 +17,6 @@ import { buildEvaluateExpression } from './utils.js';
 import { generateStealthJs } from './stealth.js';
 import { waitForDomStableJs } from './dom-helpers.js';
 import { isRecord, saveBase64ToFile } from '../utils.js';
-import { getAllElectronApps } from '../electron-apps.js';
 import { CDPBasePage } from './base-page.js';
 
 export interface CDPTarget {
@@ -478,36 +477,10 @@ function matchesCookieDomain(cookieDomain: string, targetDomain: string): boolea
 
 function selectCDPTarget(targets: CDPTarget[]): CDPTarget | undefined {
   const preferredPattern = compilePreferredPattern(process.env.OPENCLI_CDP_TARGET);
-
-  const candidates = targets
+  return targets
     .map((target, index) => ({ target, index, score: scoreCDPTarget(target, preferredPattern) }))
-    .filter(({ score }) => Number.isFinite(score));
-
-  // Electron apps route auxiliary windows onto the main document through a
-  // query: Codex ships its avatar overlay as
-  // `app://-/index.html?initialRoute=%2Favatar-overlay`, which answers `/json`
-  // first and scores exactly like the main window, so document order used to
-  // send every command to a surface with no app UI (#2242). Only break that
-  // tie; a routed window that outscores its plain sibling is still the better
-  // target, and on http(s) a query is ordinary page state.
-  const plainDocuments = new Set<string>();
-  for (const { target } of candidates) {
-    const url = parseLocalDocumentUrl(target.url);
-    if (url && !url.search) plainDocuments.add(toDocumentKey(url));
-  }
-
-  const ranked = candidates
-    .map((entry) => {
-      const url = parseLocalDocumentUrl(entry.target.url);
-      return { ...entry, routed: !!url && !!url.search && plainDocuments.has(toDocumentKey(url)) };
-    })
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (a.routed !== b.routed) return a.routed ? 1 : -1;
-      return a.index - b.index;
-    });
-
-  return ranked[0]?.target;
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((a, b) => b.score - a.score || a.index - b.index)[0]?.target;
 }
 
 function scoreCDPTarget(target: CDPTarget, preferredPattern?: RegExp): number {
@@ -526,55 +499,15 @@ function scoreCDPTarget(target: CDPTarget, preferredPattern?: RegExp): number {
 
   if (preferredPattern && preferredPattern.test(haystack)) score += 1000;
 
-  if (type === 'app') score += 120;
-  else if (type === 'webview') score += 100;
-  else if (type === 'page') score += 80;
+  if (type === 'page') score += 80;
   else if (type === 'iframe') score += 20;
 
-  if (url.startsWith('http://localhost') || url.startsWith('https://localhost')) score += 90;
-  if (url.startsWith('file://')) score += 60;
-  if (url.startsWith('http://127.0.0.1') || url.startsWith('https://127.0.0.1')) score += 50;
   if (url.startsWith('about:blank')) score -= 120;
   if (url === '' || url === 'about:blank') score -= 40;
 
   if (title && title !== 'devtools') score += 25;
 
-  // Boost score for known Electron app names from the registry (builtin + user-defined)
-  const appNames = Object.values(getAllElectronApps()).map(a => (a.displayName ?? a.processName).toLowerCase());
-  for (const name of appNames) {
-    if (title.includes(name)) { score += 120; break; }
-  }
-  for (const name of appNames) {
-    if (url.includes(name)) { score += 100; break; }
-  }
-
   return score;
-}
-
-// Keep this explicit: these are the schemes Electron serves a shared local
-// document over, where a query is a window route (#2242). A "not http(s)"
-// check would also sweep in schemes we know nothing about.
-const LOCAL_DOCUMENT_SCHEMES = new Set(['app:', 'file:']);
-
-/**
- * Parse a URL that names a local app document eligible for routed-window
- * demotion (#2242).
- *
- * Only allowlisted schemes qualify: on http(s), and on any scheme we cannot
- * vouch for, a query is ordinary page state, so returning null there keeps
- * plain document-order selection.
- */
-function parseLocalDocumentUrl(raw: string | undefined): URL | null {
-  try {
-    const url = new URL(raw ?? '');
-    return LOCAL_DOCUMENT_SCHEMES.has(url.protocol) ? url : null;
-  } catch {
-    return null;
-  }
-}
-
-function toDocumentKey(url: URL): string {
-  return `${url.protocol}//${url.host}${url.pathname}`;
 }
 
 function compilePreferredPattern(raw: string | undefined): RegExp | undefined {

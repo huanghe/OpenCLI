@@ -98,6 +98,6 @@ opencli doctor                    # Verify connection
 opencli bilibili hot --limit 5    # Test a command
 ```
 
-> *Tip: If you provide a standard HTTP/HTTPS CDP endpoint, OpenCLI requests the `/json` target list and picks the most likely inspectable app/page target automatically. If multiple app targets exist, you can further narrow selection with `OPENCLI_CDP_TARGET` (for example `antigravity` or `codex`).*
+> *Tip: If you provide a standard HTTP/HTTPS CDP endpoint, OpenCLI requests the `/json` target list and picks the most likely inspectable page target automatically. If multiple page targets exist, you can further narrow selection with `OPENCLI_CDP_TARGET` (for example `example.com` or `localhost:3000`).*
 
 If you plan to use this setup frequently, you can persist the environment variable by adding the `export` line to your `~/.bashrc` or `~/.zshrc` on the server.

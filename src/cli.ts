@@ -18,7 +18,7 @@ import { PKG_VERSION } from './version.js';
 import { printCompletionScript } from './completion.js';
 import { listOpenCliSkills, readOpenCliSkill } from './skills.js';
 import { registerAllCommands } from './commanderAdapter.js';
-import { classifyAdapter, formatRootAdapterHelpText, installCommanderNamespaceStructuredHelp, installStructuredHelp, leadingPositionalFromUsage, rootHelpData, type RootAdapterGroups } from './help.js';
+import { formatRootAdapterHelpText, installCommanderNamespaceStructuredHelp, installStructuredHelp, leadingPositionalFromUsage, rootHelpData, type RootAdapterGroups } from './help.js';
 import { EXIT_CODES, getErrorMessage, BrowserConnectError, CliError } from './errors.js';
 import { TargetError, type TargetErrorCode } from './browser/target-errors.js';
 import { resolveTargetJs, getTextResolvedJs, getValueResolvedJs, getAttributesResolvedJs, selectResolvedJs, isAutocompleteResolvedJs, type ResolveOptions, type TargetMatchLevel } from './browser/target-resolver.js';
@@ -695,16 +695,11 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
         return;
       }
 
-      // Table (default) — grouped by adapter kind (app vs site), then by site name.
-      // classifyAdapter() reads the `domain` field: DNS-style domains are sites;
-      // localhost/loopback endpoints and bare app names are apps.
-      const appsBySite = new Map<string, CliCommand[]>();
       const sitesBySite = new Map<string, CliCommand[]>();
       for (const cmd of commands) {
-        const target = classifyAdapter(cmd.domain) === 'app' ? appsBySite : sitesBySite;
-        const g = target.get(cmd.site) ?? [];
+        const g = sitesBySite.get(cmd.site) ?? [];
         g.push(cmd);
-        target.set(cmd.site, g);
+        sitesBySite.set(cmd.site, g);
       }
 
       const renderSiteGroup = (site: string, cmds: CliCommand[]): void => {
@@ -724,19 +719,13 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
       console.log('  opencli' + ' — available commands');
       console.log();
 
-      if (appsBySite.size > 0) {
-        console.log('  App adapters');
-        console.log();
-        for (const [site, cmds] of appsBySite) renderSiteGroup(site, cmds);
-      }
-
       if (sitesBySite.size > 0) {
         console.log('  Site adapters');
         console.log();
         for (const [site, cmds] of sitesBySite) renderSiteGroup(site, cmds);
       }
 
-      console.log(`  ${commands.length} built-in commands across ${appsBySite.size} apps + ${sitesBySite.size} sites`);
+      console.log(`  ${commands.length} built-in commands across ${sitesBySite.size} sites`);
       console.log();
     });
 
@@ -3365,43 +3354,12 @@ cli({
     .description('Restart the daemon')
     .action(async () => { await daemonRestart(); });
 
-  // ── Antigravity serve (long-running, special case) ────────────────────────
-
-  const antigravityCmd = program.command('antigravity').description('antigravity commands');
-  antigravityCmd
-    .command('serve')
-    .description('Start Anthropic-compatible API proxy for Antigravity')
-    .option('--port <port>', 'Server port (default: 8082)', '8082')
-    .option('--timeout <seconds>', 'Maximum time to wait for a reply (default: 120s)')
-    .action(async (opts) => {
-      // @ts-expect-error JS adapter — no type declarations
-      const { startServe } = await import('../../clis/antigravity/serve.js');
-      await startServe({
-        port: parseInt(opts.port, 10),
-        timeout: opts.timeout ? parsePositiveIntOption(opts.timeout, '--timeout', 120) : undefined,
-      });
-    });
-
   // ── Dynamic adapter commands ──────────────────────────────────────────────
 
-  const siteGroups = new Map<string, Command>();
-  siteGroups.set('antigravity', antigravityCmd);
-  const siteNames = registerAllCommands(program, siteGroups);
+  const siteNames = registerAllCommands(program);
   applyRootSubcommandSummaries(program);
 
-  // ── Help-text grouping: App adapters / Site adapters ──
-  // Classification derives from each adapter's `domain` field — see classifyAdapter.
-  const siteDomains = new Map<string, string | undefined>();
-  for (const [, cmd] of getRegistry()) {
-    if (!siteDomains.has(cmd.site)) siteDomains.set(cmd.site, cmd.domain);
-  }
-  const apps: string[] = [];
-  const sites: string[] = [];
-  for (const site of siteNames) {
-    if (classifyAdapter(siteDomains.get(site)) === 'app') apps.push(site);
-    else sites.push(site);
-  }
-  const adapterGroups: RootAdapterGroups = { apps, sites };
+  const adapterGroups: RootAdapterGroups = { sites: [...siteNames] };
   const adapterNameSet = new Set<string>(siteNames);
   installCommanderNamespaceStructuredHelp(browser, { globalCommand: program, description: originalBrowserDescription });
   installCommanderNamespaceStructuredHelp(authCmd, { globalCommand: program, description: 'Inspect website login status' });

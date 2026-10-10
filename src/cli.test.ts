@@ -9,7 +9,6 @@ import { BrowserCommandError } from './browser/daemon-client.js';
 import type { IPage } from './types.js';
 import { TargetError } from './browser/target-errors.js';
 import { PKG_VERSION } from './version.js';
-import { classifyAdapter } from './help.js';
 
 const {
   mockBrowserConnect,
@@ -152,108 +151,6 @@ describe('createProgram root help descriptions', () => {
     }
   });
 
-  it('groups adapters into App / Site buckets by domain field', () => {
-    const registry = getRegistry();
-    const snapshot = new Map(registry);
-    registry.clear();
-    try {
-      cli({
-        site: 'bilibili',
-        name: 'hot',
-        access: 'read',
-        description: 'Bilibili hot videos',
-        domain: 'www.bilibili.com',
-        strategy: Strategy.PUBLIC,
-        browser: false,
-      });
-      cli({
-        site: 'chatwise',
-        name: 'ask',
-        access: 'write',
-        description: 'Ask Chatwise desktop app',
-        domain: 'localhost',
-        strategy: Strategy.UI,
-        browser: true,
-      });
-
-      const program = createProgram('', '');
-      const help = program.helpInformation();
-
-      // Two separate sections, each with own count
-      expect(help).toContain('App adapters (1):');
-      expect(help).toMatch(/App adapters \(1\):\n {2}chatwise/);
-      expect(help).toContain('Site adapters (1):');
-      expect(help).toMatch(/Site adapters \(1\):\n {2}bilibili/);
-
-      // App adapters appear before Site adapters.
-      expect(help.indexOf('App adapters')).toBeLessThan(help.indexOf('Site adapters'));
-    } finally {
-      registry.clear();
-      for (const [key, value] of snapshot) registry.set(key, value);
-    }
-  });
-
-  it('classifies local IP domains as app adapters', () => {
-    expect(classifyAdapter('localhost')).toBe('app');
-    expect(classifyAdapter('127.0.0.1')).toBe('app');
-    expect(classifyAdapter('::1')).toBe('app');
-    expect(classifyAdapter('www.bilibili.com')).toBe('site');
-  });
-
-  it('splits list table output into App and Site sections without changing per-site rows', async () => {
-    const registry = getRegistry();
-    const snapshot = new Map(registry);
-    const stdoutSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const restoreStdoutSpy = () => stdoutSpy.mockImplementation(() => {});
-    registry.clear();
-    try {
-      cli({
-        site: 'antigravity',
-        name: 'history',
-        access: 'read',
-        description: 'Read Antigravity history',
-        domain: '127.0.0.1',
-        strategy: Strategy.UI,
-        browser: true,
-      });
-      cli({
-        site: 'chatwise',
-        name: 'ask',
-        access: 'write',
-        description: 'Ask Chatwise desktop app',
-        domain: 'localhost',
-        strategy: Strategy.UI,
-        browser: true,
-      });
-      cli({
-        site: 'bilibili',
-        name: 'hot',
-        access: 'read',
-        description: 'Bilibili hot videos',
-        domain: 'www.bilibili.com',
-        strategy: Strategy.PUBLIC,
-        browser: false,
-      });
-
-      const program = createProgram('', '');
-      await program.parseAsync(['node', 'opencli', 'list']);
-      const output = stdoutSpy.mock.calls.flat().join('\n');
-
-      expect(output).toContain('App adapters');
-      expect(output).toContain('Site adapters');
-      expect(output.indexOf('App adapters')).toBeLessThan(output.indexOf('Site adapters'));
-      expect(output).toMatch(/App adapters[\s\S]*antigravity[\s\S]*history \[ui\] — Read Antigravity history/);
-      expect(output).toMatch(/App adapters[\s\S]*chatwise[\s\S]*ask \[ui\] — Ask Chatwise desktop app/);
-      expect(output).toMatch(/Site adapters[\s\S]*bilibili[\s\S]*hot \[public\] — Bilibili hot videos/);
-      expect(output).toContain('3 built-in commands across 2 apps + 1 sites');
-    } finally {
-      restoreStdoutSpy();
-      stdoutSpy.mockClear();
-      registry.clear();
-      for (const [key, value] of snapshot) registry.set(key, value);
-    }
-  });
-
   it('omits empty list table sections and leaves structured list rows unchanged', async () => {
     const registry = getRegistry();
     const snapshot = new Map(registry);
@@ -277,7 +174,7 @@ describe('createProgram root help descriptions', () => {
       const tableOutput = stdoutSpy.mock.calls.flat().join('\n');
       expect(tableOutput).not.toContain('App adapters');
       expect(tableOutput).toContain('Site adapters');
-      expect(tableOutput).toContain('1 built-in commands across 0 apps + 1 sites');
+      expect(tableOutput).toContain('1 built-in commands across 1 sites');
 
       stdoutSpy.mockClear();
       const jsonProgram = createProgram('', '');
@@ -302,7 +199,7 @@ describe('createProgram root help descriptions', () => {
     }
   });
 
-  it('exposes app_adapters / site_adapters in structured help', () => {
+  it('exposes only site_adapters in structured help', () => {
     const registry = getRegistry();
     const snapshot = new Map(registry);
     const argv = process.argv;
@@ -317,29 +214,18 @@ describe('createProgram root help descriptions', () => {
         strategy: Strategy.PUBLIC,
         browser: false,
       });
-      cli({
-        site: 'chatwise',
-        name: 'ask',
-        access: 'write',
-        description: 'Ask Chatwise desktop app',
-        domain: 'localhost',
-        strategy: Strategy.UI,
-        browser: true,
-      });
 
       const program = createProgram('', '');
       process.argv = ['node', 'opencli', '--help', '-f', 'yaml'];
       const data = yaml.load(program.helpInformation()) as any;
 
-      expect(data.app_adapters.count).toBe(1);
-      expect(data.app_adapters.apps).toEqual(['chatwise']);
+      expect(data).not.toHaveProperty('app_adapters');
       expect(data.site_adapters.count).toBe(1);
       expect(data.site_adapters.sites).toEqual(['bilibili']);
       expect(data).not.toHaveProperty('external_clis');
       // Adapters must NOT leak into the core commands list
       const commandNames = data.commands.map((cmd: any) => cmd.name);
       expect(commandNames).not.toContain('bilibili');
-      expect(commandNames).not.toContain('chatwise');
     } finally {
       process.argv = argv;
       registry.clear();
