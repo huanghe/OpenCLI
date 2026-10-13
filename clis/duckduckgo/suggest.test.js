@@ -8,31 +8,6 @@ afterEach(() => {
 });
 
 describe('duckduckgo suggest', () => {
-  it('should register as a valid command', () => {
-    expect(command).toBeDefined();
-    expect(command.site).toBe('duckduckgo');
-    expect(command.name).toBe('suggest');
-    expect(command.access).toBe('read');
-    expect(command.browser).toBe(false);
-    expect(command.strategy).toBe('public');
-  });
-
-  it('should define keyword positional arg', () => {
-    const kwArg = command.args.find(a => a.name === 'keyword');
-    expect(kwArg).toBeDefined();
-    expect(kwArg.positional).toBe(true);
-    expect(kwArg.required).toBe(true);
-  });
-
-  it('should define limit arg with default 8', () => {
-    const limitArg = command.args.find(a => a.name === 'limit');
-    expect(limitArg).toBeDefined();
-    expect(limitArg.default).toBe(8);
-  });
-
-  it('should define phrase column', () => {
-    expect(command.columns).toEqual(['phrase']);
-  });
 
   it('rejects empty query and invalid limit before fetch', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');

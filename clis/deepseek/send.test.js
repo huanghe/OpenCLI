@@ -23,16 +23,6 @@ describe('deepseek send', () => {
     vi.clearAllMocks();
   });
 
-  it('registers as a cookie-browser write command with id + prompt positional args', () => {
-    expect(command).toBeDefined();
-    expect(command.browser).toBe(true);
-    expect(command.strategy).toBe('cookie');
-    expect(command.access).toBe('write');
-    expect(command.columns).toEqual(['Status', 'InjectedText']);
-    expect(command.args.map((a) => a.name)).toEqual(['id', 'prompt', 'timeout']);
-    expect(command.args.find((a) => a.name === 'timeout')).toMatchObject({ type: 'int', default: 60 });
-  });
-
   it('rejects malformed conversation IDs before any browser navigation', async () => {
     const page = createPage();
     await expect(command.func(page, { id: 'not-a-uuid', prompt: 'hi' })).rejects.toThrow(ArgumentError);

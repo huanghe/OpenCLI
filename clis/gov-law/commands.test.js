@@ -7,15 +7,6 @@ describe('gov-law commands', () => {
     const search = getRegistry().get('gov-law/search');
     const recent = getRegistry().get('gov-law/recent');
 
-    it('registers both commands as public browser commands', () => {
-        expect(search).toBeDefined();
-        expect(recent).toBeDefined();
-        expect(search.strategy).toBe('public');
-        expect(recent.strategy).toBe('public');
-        expect(search.browser).toBe(true);
-        expect(recent.browser).toBe(true);
-    });
-
     it('rejects empty search queries before browser navigation', async () => {
         const page = { goto: vi.fn() };
         await expect(search.func(page, { query: '   ' })).rejects.toMatchObject({

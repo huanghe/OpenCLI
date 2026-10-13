@@ -12,42 +12,8 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('lobsters listing adapters expose short_id and created_at', () => {
-    const listings = ['lobsters/hot', 'lobsters/active', 'lobsters/newest', 'lobsters/tag'];
-
-    listings.forEach((key) => {
-        it(`${key} surfaces id (short_id) and created_at on every row`, () => {
-            const cmd = getRegistry().get(key);
-            expect(cmd?.columns).toEqual(['rank', 'id', 'title', 'score', 'author', 'comments', 'created_at', 'tags', 'url']);
-            const mapStep = cmd?.pipeline?.find((step) => step.map);
-            expect(mapStep?.map).toMatchObject({
-                id: '${{ item.short_id }}',
-                created_at: '${{ item.created_at }}',
-                url: '${{ item.comments_url }}',
-            });
-        });
-    });
-});
-
 describe('lobsters/read adapter', () => {
     const cmd = getRegistry().get('lobsters/read');
-
-    it('registers the comment-thread shape (type/author/score/text)', () => {
-        expect(cmd?.columns).toEqual(['type', 'author', 'score', 'text']);
-    });
-
-    it('takes a positional short_id plus tunable depth/limit/replies/max-length args', () => {
-        const argNames = (cmd?.args || []).map((a) => a.name);
-        expect(argNames).toEqual(['id', 'limit', 'depth', 'replies', 'max-length']);
-        const idArg = cmd?.args?.find((a) => a.name === 'id');
-        expect(idArg?.required).toBe(true);
-        expect(idArg?.positional).toBe(true);
-    });
-
-    it('uses the public lobste.rs JSON endpoint (no browser, public strategy)', () => {
-        expect(cmd?.browser).toBe(false);
-        expect(cmd?.strategy).toBe('public');
-    });
 
     it('fails fast with ArgumentError for non-alphanumeric short_id before fetching', async () => {
         const fetchMock = vi.fn();

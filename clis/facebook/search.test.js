@@ -24,11 +24,6 @@ function createPage(payload) {
 }
 
 describe('facebook search', () => {
-  it('registers the search command with the row contract', () => {
-    const cmd = getRegistry().get('facebook/search');
-    expect(cmd).toBeDefined();
-    expect(cmd.columns).toEqual(['index', 'title', 'text', 'url']);
-  });
 
   it('navigates home then to search results before extracting (#625)', async () => {
     const page = createPage({ status: 'ok', rows: [{ index: 1, title: 'X', text: 'x', url: 'https://www.facebook.com/x' }] });

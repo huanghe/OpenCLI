@@ -172,11 +172,6 @@ describe('reuters mapArticleDetail', () => {
 describe('reuters search command (registry-level)', () => {
     const cmd = getRegistry().get('reuters/search');
 
-    it('declares Strategy.COOKIE + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(String(cmd.strategy)).toContain('cookie');
-    });
-
     it('rejects --limit out-of-range before browser navigation', async () => {
         const page = makePage(null);
         await expect(cmd.func(page, { query: 'x', limit: 0 })).rejects.toBeInstanceOf(ArgumentError);

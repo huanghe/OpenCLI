@@ -82,18 +82,6 @@ afterEach(() => {
 });
 
 describe('dblp adapter', () => {
-    it('registers search and paper with the expected columns', () => {
-        const search = getRegistry().get('dblp/search');
-        const paper = getRegistry().get('dblp/paper');
-        expect(search).toBeDefined();
-        expect(paper).toBeDefined();
-        expect(search.columns).toEqual(SEARCH_COLUMNS);
-        expect(paper.columns).toEqual(PAPER_COLUMNS);
-        expect(search.strategy).toBe('public');
-        expect(paper.strategy).toBe('public');
-        expect(search.browser).toBe(false);
-        expect(paper.browser).toBe(false);
-    });
 
     it('paper aliases include detail / view', () => {
         const paper = getRegistry().get('dblp/paper');

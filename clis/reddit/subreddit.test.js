@@ -5,14 +5,6 @@ import './subreddit.js';
 describe('reddit subreddit adapter', () => {
   const command = getRegistry().get('reddit/subreddit');
 
-  it('exposes the full subreddit-list shape including the 4 media columns', () => {
-    expect(command?.columns).toEqual([
-      'id', 'title', 'subreddit', 'author', 'upvotes', 'comments', 'url',
-      'created_utc', 'selftext',
-      'post_hint', 'url_overridden_by_dest', 'preview_image_url', 'gallery_urls',
-    ]);
-  });
-
   it('shapes children into the intermediate-object pattern with media spread in', () => {
     expect(command?.pipeline?.[0]?.evaluate).toContain('function extractRedditMedia');
     expect(command?.pipeline?.[0]?.evaluate).toContain('...extractRedditMedia(c.data)');

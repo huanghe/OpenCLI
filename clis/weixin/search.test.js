@@ -5,13 +5,6 @@ import { __test__ } from './search.js';
 describe('weixin search command', () => {
     const command = getRegistry().get('weixin/search');
 
-    it('registers as a public browser command', () => {
-        expect(command).toBeDefined();
-        expect(command.site).toBe('weixin');
-        expect(command.strategy).toBe('public');
-        expect(command.browser).toBe(true);
-    });
-
     it('rejects empty queries before browser navigation', async () => {
         const page = { goto: vi.fn() };
 

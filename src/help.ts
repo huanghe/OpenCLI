@@ -1,5 +1,6 @@
 import { Command, type Argument as CommanderArgument, type Option as CommanderOption } from 'commander';
 import yaml from 'js-yaml';
+import { OUTPUT_FORMATS } from './output-format.js';
 import type { Arg, CliCommand } from './registry.js';
 import { fullName } from './registry.js';
 import { formatCommandExample } from './serialization.js';
@@ -32,7 +33,7 @@ const COMMON_OPTIONS = [
     name: 'format',
     help: 'Output format: table, plain, json, yaml, md, csv',
     default: 'table',
-    choices: ['table', 'plain', 'json', 'yaml', 'md', 'csv'],
+    choices: OUTPUT_FORMATS,
   },
   {
     flags: '--trace <mode>',

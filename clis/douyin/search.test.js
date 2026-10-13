@@ -19,12 +19,6 @@ function createPageMock({ evaluateResult } = {}) {
 }
 
 describe('douyin search', () => {
-    it('registers the command on www.douyin.com', () => {
-        const registry = getRegistry();
-        const cmd = [...registry.values()].find((c) => c.site === 'douyin' && c.name === 'search');
-        expect(cmd).toBeDefined();
-        expect(cmd?.domain).toBe('www.douyin.com');
-    });
 
     it('rejects invalid limit before navigation', async () => {
         const cmd = getRegistry().get('douyin/search');

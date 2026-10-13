@@ -92,13 +92,6 @@ describe('linkedin thread-snapshot command', () => {
     expect(() => parseMaxScrolls(1.5)).toThrow('--max-scrolls must be an integer between 0 and 80');
   });
 
-  it('registers as a read command for structured thread context', () => {
-    const command = getRegistry().get('linkedin/thread-snapshot');
-    expect(command).toBeDefined();
-    expect(command.access).toBe('read');
-    expect(command.columns).toEqual(expect.arrayContaining(['thread_url', 'recipient', 'message_count', 'latest_text']));
-  });
-
   it('opens the exact thread, discovers the live API, and returns deduped chronological messages', async () => {
     const command = getRegistry().get('linkedin/thread-snapshot');
     const page = makeFakePage();

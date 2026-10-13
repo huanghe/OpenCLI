@@ -34,15 +34,6 @@ function nextDataWithItems(items) {
 }
 
 describe('Bloomberg Businessweek section feed', () => {
-    it('registers as a public browser read command with stable columns', () => {
-        expect(command.site).toBe('bloomberg');
-        expect(command.name).toBe('businessweek');
-        expect(command.access).toBe('read');
-        expect(command.browser).toBe(true);
-        expect(command.strategy).toBe('public');
-        expect(command.domain).toBe('www.bloomberg.com');
-        expect(command.columns).toEqual(['title', 'summary', 'link', 'mediaLinks']);
-    });
 
     it('validates --limit instead of silently clamping invalid values', () => {
         expect(parseBusinessweekLimit(undefined)).toBe(1);

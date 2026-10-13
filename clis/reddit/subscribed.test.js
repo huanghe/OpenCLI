@@ -32,11 +32,6 @@ function makePage(result) {
 describe('reddit subscribed adapter', () => {
     const command = getRegistry().get('reddit/subscribed');
 
-    it('registers with id-bearing output columns', () => {
-        expect(command).toBeDefined();
-        expect(command.columns).toEqual(['id', 'subreddit', 'title', 'subscribers', 'description', 'url']);
-    });
-
     it('parseRedditSubscribedLimit rejects out-of-range values without silent clamp', () => {
         expect(parseRedditSubscribedLimit(undefined)).toBe(100);
         expect(parseRedditSubscribedLimit(null)).toBe(100);

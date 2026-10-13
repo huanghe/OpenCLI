@@ -17,6 +17,7 @@ import { generateStealthJs } from './stealth.js';
 import { waitForDomStableJs } from './dom-helpers.js';
 import { CDPBasePage } from './base-page.js';
 import { classifyBrowserError } from './errors.js';
+import { CommandExecutionError } from '../errors.js';
 import { log } from '../logger.js';
 
 function isUnsupportedNetworkCaptureError(err: unknown): boolean {
@@ -186,7 +187,10 @@ export class Page extends CDPBasePage {
 
   async getCookies(opts: { domain?: string; url?: string } = {}): Promise<BrowserCookie[]> {
     const result = await sendCommand('cookies', { ...this._sessionOpts(), ...opts });
-    return Array.isArray(result) ? result : [];
+    if (!Array.isArray(result) || result.some(cookie => !cookie || typeof cookie.name !== 'string' || typeof cookie.value !== 'string')) {
+      throw new CommandExecutionError('Browser Bridge returned an invalid cookies response');
+    }
+    return result;
   }
 
   /** Release the current browser session lease in the extension */

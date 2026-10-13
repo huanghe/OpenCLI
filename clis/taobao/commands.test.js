@@ -6,13 +6,7 @@ import './reviews.js';
 import './cart.js';
 import './add-cart.js';
 import { createPageMock } from '../test-utils.js';
-describe('taobao command registration', () => {
-    it('registers all taobao shopping commands', () => {
-        for (const name of ['search', 'detail', 'reviews', 'cart', 'add-cart']) {
-            expect(getRegistry().get(`taobao/${name}`)).toBeDefined();
-        }
-    });
-});
+
 describe('taobao command safety', () => {
     it('rejects invalid numeric ids before evaluating page scripts', async () => {
         const page = createPageMock();

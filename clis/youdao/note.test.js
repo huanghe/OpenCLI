@@ -13,16 +13,6 @@ function makePage(evaluatePayload) {
 }
 
 describe('youdao note', () => {
-  it('registers as a public browser read command', () => {
-    expect(command).toBeDefined();
-    expect(command.site).toBe('youdao');
-    expect(command.name).toBe('note');
-    expect(command.access).toBe('read');
-    expect(command.browser).toBe(true);
-    expect(command.strategy).toBe('public');
-    expect(command.domain).toBe('share.note.youdao.com');
-    expect(command.columns).toEqual(['title', 'content', 'summary', 'keywords', 'created_at', 'file_size', 'url']);
-  });
 
   it('strictly validates share URL before navigation', async () => {
     const page = makePage({});

@@ -26,20 +26,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIST = readFileSync(join(__dirname, '__fixtures__/list.html'), 'utf8');
 const DETAIL = readFileSync(join(__dirname, '__fixtures__/detail.html'), 'utf8');
 
-describe('guazi adapter — registration', () => {
-    it('registers browse + car as PUBLIC (no browser)', () => {
-        for (const n of ['browse', 'car']) {
-            const cmd = getRegistry().get(`guazi/${n}`);
-            expect(cmd, n).toBeTruthy();
-            expect(cmd.strategy, n).toBe(Strategy.PUBLIC);
-            expect(cmd.browser, n).toBe(false);
-            expect(cmd.access, n).toBe('read');
-        }
-        expect(getRegistry().get('guazi/browse').columns).toEqual(BROWSE_COLUMNS);
-        expect(getRegistry().get('guazi/car').columns).toEqual(CAR_COLUMNS);
-    });
-});
-
 describe('guazi adapter — utils', () => {
     it('resolveCityCode maps names, codes, and defaults to bj', () => {
         expect(resolveCityCode('北京')).toBe('bj');

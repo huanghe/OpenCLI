@@ -145,13 +145,18 @@ function createFilterBehaviorPage(options = {}) {
             container.className = 'tag-container';
             for (const choice of choices) {
                 if (options.missing === `${groupLabel}/${choice}`) continue;
-                const copies = options.ambiguous === `${groupLabel}/${choice}` ? 2 : 1;
+                const copies = options.ghosts || options.ambiguous === `${groupLabel}/${choice}` ? 2 : 1;
                 for (let copy = 0; copy < copies; copy++) {
                     const option = document.createElement('div');
                     option.className = `tags${state[groupLabel] === choice ? ' active' : ''}`;
                     const optionLabel = document.createElement('span');
                     optionLabel.textContent = choice;
                     option.append(optionLabel);
+                    if (options.ghosts && copy === 0) {
+                        if (options.ghosts !== 'opacity') option.setAttribute('aria-hidden', 'true');
+                        if (options.ghosts !== 'aria') option.style.opacity = '0.00001';
+                        option.addEventListener('click', () => clicks.push('GHOST'));
+                    }
                     option.addEventListener('click', (event) => {
                         event.stopPropagation();
                         clicks.push(`${groupLabel}/${choice}`);
@@ -646,6 +651,19 @@ describe('xiaohongshu search', () => {
 });
 
 describe('xiaohongshu search filter behavior', () => {
+    it('ignores hidden overlapping clones for default and explicit filters without clicking them', async () => {
+        vi.useFakeTimers();
+        try {
+            for (const ghosts of ['aria', 'opacity', true]) {
+                const page = createFilterBehaviorPage({ ghosts });
+                await runFilterCommand(page, {});
+                await runFilterCommand(page, { sort: 'latest', 'note-type': 'video' });
+                expect(page.filterState).toMatchObject({ '排序依据': '最新', '笔记类型': '视频' });
+                expect(page.filterClicks).toEqual(['排序依据/最新', '笔记类型/视频']);
+            }
+        } finally { vi.useRealTimers(); }
+    });
+
     it('converges reused-tab state for filtered -> default and filter set A -> B', async () => {
         vi.useFakeTimers();
         try {
@@ -1052,5 +1070,46 @@ describe('noteIdToDate (ObjectID timestamp parsing)', () => {
     it('returns empty string when timestamp is out of range', () => {
         // All zeros → ts = 0
         expect(noteIdToDate('https://www.xiaohongshu.com/search_result/000000000000000000000000')).toBe('');
+    });
+});
+
+
+describe('search readiness before body creation', () => {
+    it.each(['initially missing', 'replaced'])('observes content when body is %s', async (mode) => {
+        const dom = new JSDOM('<html><body></body></html>', { runScripts: 'outside-only' });
+        const { window } = dom;
+        if (mode === 'initially missing') window.document.body.remove();
+        try {
+            const pending = window.eval(__test__.WAIT_FOR_CONTENT_JS);
+            const body = window.document.createElement('body');
+            body.innerHTML = '<section class="note-item">result</section>';
+            if (window.document.body) window.document.body.replaceWith(body);
+            else window.document.documentElement.append(body);
+            await expect(pending).resolves.toBe('content');
+        } finally { window.close(); }
+    });
+
+    it('keeps the shared scroll helper bounded without a body', async () => {
+        const dom = new JSDOM('<html></html>', { runScripts: 'outside-only' });
+        dom.window.document.body.remove();
+        dom.window.scrollTo = vi.fn();
+        dom.window.setTimeout = callback => setTimeout(callback, 0);
+        try {
+            await expect(dom.window.eval(buildScrollUntilJs(1, 1))).resolves.toBe(0);
+        } finally { dom.window.close(); }
+    });
+
+    it('keeps a finite timeout when no body ever arrives', async () => {
+        const dom = new JSDOM('<html></html>', { runScripts: 'outside-only' });
+        dom.window.document.body.remove();
+        let expire;
+        dom.window.setTimeout = vi.fn(callback => { expire = callback; return 1; });
+        try {
+            const pending = dom.window.eval(__test__.WAIT_FOR_CONTENT_JS);
+            expect(dom.window.setTimeout).toHaveBeenCalledWith(expect.any(Function), 20_000);
+            expect(expire).toBeTypeOf('function');
+            expire();
+            await expect(pending).resolves.toBe('timeout');
+        } finally { dom.window.close(); }
     });
 });

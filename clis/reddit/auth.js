@@ -7,9 +7,6 @@ async function hasRedditSessionCookie(page) {
 }
 
 async function verifyRedditIdentity(page) {
-  if (!await hasRedditSessionCookie(page)) {
-    throw new AuthRequiredError('reddit.com', 'Reddit reddit_session cookie missing');
-  }
   await page.goto('https://www.reddit.com/');
   await page.wait(2);
   const result = await page.evaluate(`(async () => {
@@ -38,6 +35,7 @@ async function verifyRedditIdentity(page) {
 
 registerSiteAuthCommands({
   site: 'reddit',
+  registerWhoami: false,
   domain: 'reddit.com',
   loginUrl: 'https://www.reddit.com/login',
   columns: ['username', 'id'],

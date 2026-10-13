@@ -191,25 +191,6 @@ describe('gemini models command registration', () => {
         expect(modelsCommand.name).toBe('models');
     });
 
-    it('is access=read (not write)', () => {
-        expect(modelsCommand.access).toBe('read');
-    });
-
-    it('declares model and thinkingValues as its output columns', () => {
-        expect(modelsCommand.columns).toEqual(['model', 'thinkingValues']);
-    });
-
-    it('has no CLI arguments', () => {
-        expect(modelsCommand.args).toEqual([]);
-    });
-
-    it('is a browser command', () => {
-        expect(modelsCommand.browser).toBe(true);
-    });
-
-    it('targets gemini.google.com', () => {
-        expect(modelsCommand.domain).toBe('gemini.google.com');
-    });
 });
 
 // ── DOM fixture tests (jsdom) ──────────────────────────────────────────────

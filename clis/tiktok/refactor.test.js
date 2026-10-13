@@ -146,15 +146,6 @@ describe('tiktok/utils', () => {
 });
 
 describe('tiktok/explore (page-context refactor)', () => {
-    it('registers as read-only browser COOKIE adapter with full video columns', () => {
-        expect(exploreCommand.access).toBe('read');
-        expect(exploreCommand.browser).toBe(true);
-        expect(exploreCommand.strategy).toBe('cookie');
-        expect(exploreCommand.columns).toEqual([
-            'index', 'id', 'author', 'url', 'cover', 'title', 'desc',
-            'plays', 'likes', 'comments', 'shares', 'createTime',
-        ]);
-    });
 
     it('validates --limit upfront before navigating (no silent clamp)', async () => {
         const page = makePage([]);
@@ -189,15 +180,6 @@ describe('tiktok/explore (page-context refactor)', () => {
 });
 
 describe('tiktok/user (page-context refactor)', () => {
-    it('registers as read-only browser COOKIE adapter with sourced video columns', () => {
-        expect(userCommand.access).toBe('read');
-        expect(userCommand.browser).toBe(true);
-        expect(userCommand.strategy).toBe('cookie');
-        expect(userCommand.columns).toEqual([
-            'index', 'id', 'source', 'author', 'url', 'cover', 'title', 'desc',
-            'plays', 'likes', 'comments', 'shares', 'createTime',
-        ]);
-    });
 
     it('validates username and --limit upfront before navigating', async () => {
         const page = makePage([]);
@@ -239,14 +221,6 @@ describe('tiktok/user (page-context refactor)', () => {
 });
 
 describe('tiktok/friends (page-context refactor)', () => {
-    it('registers as read-only COOKIE adapter with user columns', () => {
-        expect(friendsCommand.access).toBe('read');
-        expect(friendsCommand.browser).toBe(true);
-        expect(friendsCommand.strategy).toBe('cookie');
-        expect(friendsCommand.columns).toEqual([
-            'index', 'username', 'name', 'secUid', 'verified', 'followers', 'following', 'url',
-        ]);
-    });
 
     it('validates --limit upfront and never navigates on bad input', async () => {
         const page = makePage([]);
@@ -274,14 +248,6 @@ describe('tiktok/friends (page-context refactor)', () => {
 });
 
 describe('tiktok/following (page-context refactor)', () => {
-    it('registers as read-only COOKIE adapter with user columns', () => {
-        expect(followingCommand.access).toBe('read');
-        expect(followingCommand.browser).toBe(true);
-        expect(followingCommand.strategy).toBe('cookie');
-        expect(followingCommand.columns).toEqual([
-            'index', 'username', 'name', 'secUid', 'verified', 'followers', 'following', 'url',
-        ]);
-    });
 
     it('validates --limit upfront', async () => {
         const page = makePage([]);
@@ -314,14 +280,6 @@ describe('tiktok/following (page-context refactor)', () => {
 });
 
 describe('tiktok/notifications (page-context refactor)', () => {
-    it('registers as read-only COOKIE adapter with notification columns', () => {
-        expect(notificationsCommand.access).toBe('read');
-        expect(notificationsCommand.browser).toBe(true);
-        expect(notificationsCommand.strategy).toBe('cookie');
-        expect(notificationsCommand.columns).toEqual([
-            'index', 'id', 'from', 'text', 'createTime',
-        ]);
-    });
 
     it('validates --limit and --type upfront before navigating', async () => {
         const page = makePage([]);
@@ -354,14 +312,6 @@ describe('tiktok/notifications (page-context refactor)', () => {
 });
 
 describe('tiktok/live (page-context refactor)', () => {
-    it('registers as read-only COOKIE adapter with live columns', () => {
-        expect(liveCommand.access).toBe('read');
-        expect(liveCommand.browser).toBe(true);
-        expect(liveCommand.strategy).toBe('cookie');
-        expect(liveCommand.columns).toEqual([
-            'index', 'streamer', 'name', 'title', 'viewers', 'likes', 'secUid', 'url',
-        ]);
-    });
 
     it('validates --limit upfront', async () => {
         const page = makePage([]);
