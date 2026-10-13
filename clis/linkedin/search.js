@@ -427,7 +427,6 @@ cli({
             searchParams.set('location', location);
         await page.goto(`https://www.linkedin.com/jobs/search/?${searchParams.toString()}`);
         await assertLinkedInAuthenticated(page, 'LinkedIn search');
-        await page.wait({ text: 'Jobs', timeout: 10 });
         const companyIds = await resolveCompanyIds(page, kwargs.company);
         const input = {
             keywords,

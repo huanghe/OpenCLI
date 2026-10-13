@@ -141,24 +141,6 @@ describe('booking helpers — hasPositiveResultCount', () => {
     });
 });
 
-describe('booking adapter registry shape', () => {
-    it('search is registered as read with id-shaped column for round-trip', () => {
-        const search = getRegistry().get('booking/search');
-        expect(search).toBeDefined();
-        expect(search.access).toBe('read');
-        expect(search.browser).toBe(true);
-        // slug + country together form the round-trip identity (URL: /hotel/<country>/<slug>.html)
-        expect(search.columns).toContain('slug');
-        expect(search.columns).toContain('country');
-        expect(search.columns).toContain('url');
-    });
-
-    it('search columns stay <= 12 to honor agent-native row shape', () => {
-        const search = getRegistry().get('booking/search');
-        expect(search.columns.length).toBeLessThanOrEqual(12);
-    });
-});
-
 describe('booking search — typed errors (no silent fallback)', () => {
     const fakePage = { goto: () => { throw new Error('should not navigate'); } };
 

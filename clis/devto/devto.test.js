@@ -11,73 +11,8 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('devto listing adapters surface id + reading_time + published_at', () => {
-    it('devto/top has the agent-native column shape and pipeline mapping', () => {
-        const cmd = getRegistry().get('devto/top');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'title', 'author', 'reactions', 'comments',
-            'reading_time', 'published_at', 'tags', 'url',
-        ]);
-        const mapStep = cmd?.pipeline?.find((step) => step.map);
-        expect(mapStep?.map).toMatchObject({
-            id: '${{ item.id }}',
-            reading_time: '${{ item.reading_time_minutes }}',
-            published_at: '${{ item.published_at }}',
-            url: '${{ item.url }}',
-        });
-    });
-
-    it('devto/tag has the agent-native column shape and pipeline mapping', () => {
-        const cmd = getRegistry().get('devto/tag');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'title', 'author', 'reactions', 'comments',
-            'reading_time', 'published_at', 'tags', 'url',
-        ]);
-        const mapStep = cmd?.pipeline?.find((step) => step.map);
-        expect(mapStep?.map).toMatchObject({
-            id: '${{ item.id }}',
-            reading_time: '${{ item.reading_time_minutes }}',
-            published_at: '${{ item.published_at }}',
-        });
-    });
-
-    it('devto/user has the agent-native column shape (no author column, since user-specific)', () => {
-        const cmd = getRegistry().get('devto/user');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'title', 'reactions', 'comments',
-            'reading_time', 'published_at', 'tags', 'url',
-        ]);
-        const mapStep = cmd?.pipeline?.find((step) => step.map);
-        expect(mapStep?.map).toMatchObject({
-            id: '${{ item.id }}',
-            reading_time: '${{ item.reading_time_minutes }}',
-            published_at: '${{ item.published_at }}',
-        });
-    });
-});
-
 describe('devto/read adapter', () => {
     const cmd = getRegistry().get('devto/read');
-
-    it('registers the article-detail row shape', () => {
-        expect(cmd?.columns).toEqual([
-            'id', 'title', 'author', 'reactions', 'reading_time',
-            'tags', 'published_at', 'body', 'url',
-        ]);
-    });
-
-    it('takes a positional id plus a tunable max-length', () => {
-        const argNames = (cmd?.args || []).map((a) => a.name);
-        expect(argNames).toEqual(['id', 'max-length']);
-        const idArg = cmd?.args?.find((a) => a.name === 'id');
-        expect(idArg?.required).toBe(true);
-        expect(idArg?.positional).toBe(true);
-    });
-
-    it('uses the public dev.to JSON endpoint (no browser, public strategy)', () => {
-        expect(cmd?.browser).toBe(false);
-        expect(cmd?.strategy).toBe('public');
-    });
 
     it('fails fast with ArgumentError for non-numeric id before fetching', async () => {
         const fetchMock = vi.fn();

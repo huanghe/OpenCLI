@@ -44,6 +44,14 @@ describe('commanderAdapter arg passing', () => {
     process.exitCode = undefined;
   });
 
+  it('rejects an unknown format before executing the command', async () => {
+    const program = new Command();
+    registerCommandToProgram(program.command('paperreview'), { ...cmd, access: 'write' });
+    await expect(program.parseAsync(['node', 'opencli', 'paperreview', 'submit', './paper.pdf', '-f', 'bogus']))
+      .rejects.toMatchObject({ code: 'ARGUMENT', exitCode: 2 });
+    expect(mockExecuteCommand).not.toHaveBeenCalled();
+  });
+
   it('passes bool flag values through to executeCommand for coercion', async () => {
     const program = new Command();
     const siteCmd = program.command('paperreview');

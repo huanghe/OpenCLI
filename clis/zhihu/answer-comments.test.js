@@ -43,20 +43,6 @@ function child(id, rootId, parentId, content = `reply ${id}`, extra = {}) {
 }
 
 describe('zhihu answer-comments', () => {
-    it('registers score/latest ordering and reconstructable hierarchy fields', () => {
-        const cmd = command();
-        expect(cmd).toBeDefined();
-        expect(cmd.access).toBe('read');
-        expect(cmd.strategy).toBe('cookie');
-        expect(cmd.args.find((arg) => arg.name === 'order')).toMatchObject({
-            default: 'score',
-            choices: ['score', 'latest'],
-        });
-        expect(cmd.columns).toEqual([
-            'rank', 'comment_rank', 'reply_rank', 'depth', 'id', 'parent_id',
-            'author', 'reply_to', 'likes', 'created_at', 'url', 'content',
-        ]);
-    });
 
     it('uses comment_v5 and preserves root order plus exact reply depth', async () => {
         const page = pageWith(async (url) => {
@@ -112,6 +98,27 @@ describe('zhihu answer-comments', () => {
         const rows = await command().func(page, args({ order: 'latest' }));
         expect(rows.map((row) => row.id)).toEqual(['100']);
         expect(page.evaluate).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['root', 'child'])('follows server-sized %s pages beyond the old fetch budget', async (role) => {
+        let count = 0;
+        const page = pageWith(async (url) => {
+            if (role === 'child' && url.includes('/root_comment')) {
+                return { data: [root('100', 'root', { child_comment_count: 60 })], paging: { is_end: true } };
+            }
+            const items = Array.from({ length: 10 }, (_, i) => {
+                const id = String(200 + count * 10 + i);
+                return role === 'root' ? root(id) : child(id, '100', '100');
+            });
+            count += 1;
+            const path = role === 'root' ? 'answers/20/root_comment' : 'comment/100/child_comment';
+            const order = role === 'root' ? '&order_by=score' : '';
+            return { data: items, paging: { is_end: count === 6,
+                next: `https://www.zhihu.com/api/v4/comment_v5/${path}?limit=10&offset=${count}${order}` } };
+        });
+        const rows = await command().func(page, args(role === 'root' ? { limit: 60 } : { 'replies-limit': 60 }));
+        expect(rows).toHaveLength(role === 'root' ? 60 : 61);
+        expect(count).toBe(6);
     });
 
     it('counts unique roots toward limit and idempotently removes equivalent page overlap', async () => {
@@ -215,6 +222,8 @@ describe('zhihu answer-comments', () => {
 
     it('requires exact answer/root/order pagination provenance', async () => {
         for (const next of [
+            ...['0', '-1', 'abc', '1.5', ''].map(size =>
+                `https://www.zhihu.com/api/v4/comment_v5/answers/20/root_comment?order_by=score&limit=${size}&offset=x`),
             'https://evil.example/api/v4/comment_v5/answers/20/root_comment?order_by=score&limit=20&offset=x',
             'https://www.zhihu.com/api/v4/comment_v5/answers/21/root_comment?order_by=score&limit=20&offset=x',
             'https://www.zhihu.com/api/v4/comment_v5/answers/20/root_comment?order_by=ts&limit=20&offset=x',

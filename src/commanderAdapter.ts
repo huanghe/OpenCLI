@@ -10,6 +10,7 @@
  * All execution logic lives in execution.ts.
  */
 
+import { normalizeOutputFormat } from './output-format.js';
 import { Command } from 'commander';
 import { log } from './logger.js';
 import yaml from 'js-yaml';
@@ -57,7 +58,7 @@ export function registerCommandToProgram(siteCmd: Command, cmd: CliCommand): voi
     }
   }
   subCmd
-    .option('-f, --format <fmt>', 'Output format: table, plain, json, yaml, md, csv', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, plain, json, yaml, md, csv', normalizeOutputFormat, 'table')
     .option('--trace <mode>', 'Trace capture: off, on, retain-on-failure', 'off')
     .option('-v, --verbose', 'Debug output', false);
   if (cmd.browser) {

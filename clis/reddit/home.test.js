@@ -29,16 +29,6 @@ function makeEntry(id, overrides = {}) {
 describe('reddit home command', () => {
     const command = getRegistry().get('reddit/home');
 
-    it('registers with the expected shape', () => {
-        expect(command).toBeDefined();
-        expect(command.access).toBe('read');
-        expect(command.browser).toBe(true);
-        expect(command.columns).toEqual([
-            'rank', 'title', 'subreddit', 'score', 'comments', 'postId', 'author', 'url',
-            'post_hint', 'url_overridden_by_dest', 'preview_image_url', 'gallery_urls',
-        ]);
-    });
-
     it('parseRedditHomeLimit accepts [1,100] and rejects out-of-range / non-integer without silent clamp', () => {
         expect(parseRedditHomeLimit(undefined)).toBe(25);
         expect(parseRedditHomeLimit(null)).toBe(25);

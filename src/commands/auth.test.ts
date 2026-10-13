@@ -295,3 +295,42 @@ describe('auth refresh collection', () => {
     expect(executeCommandMock).not.toHaveBeenCalled();
   });
 });
+
+describe('auth classification regressions', () => {
+  it.each([undefined, null, [], {}, true, 'alice', { logged_in: null }, { logged_in: 'false' }])('does not report invalid full response %j as logged in', async result => {
+    registerWhoami('alpha');
+    executeCommandMock.mockResolvedValueOnce(result);
+    expect((await collectAuthStatus({ full: true }))[0]?.status).toBe('error');
+  });
+  it('honors explicit negative full results', async () => {
+    registerWhoami('alpha', { identity: { logged_in: false } });
+    expect((await collectAuthStatus({ full: true }))[0]?.status).toBe('not_logged_in');
+  });
+  it.each([false, true])('isolates lazy import failures in full=%s', async full => {
+    registerWhoami('broken', { quick: true });
+    Object.assign(getRegistry().get('broken/whoami')!, { _lazy: true, _modulePath: '/missing/opencli-auth-fixture.js' });
+    registerWhoami('working', { quick: true, quickLoggedIn: true });
+    expect((await collectAuthStatus({ full })).map(r => [r.site, r.status])).toEqual([['broken', 'error'], ['working', 'logged_in']]);
+  });
+  it('does not classify unknown refresh signals as logout or success', async () => {
+    registerWhoami('alpha', { quick: true });
+    const cmd = getRegistry().get('alpha/whoami')!;
+    cmd.authStatus!.quickCheck = async () => ({ logged_in: null });
+    const rows = await collectAuthRefresh({ statePath: await tempStatePath() });
+    expect(rows[0]?.status).toBe('error');
+    expect(rows[0]?.last_touched_at).toBe('');
+  });
+  it('isolates lazy import failures during refresh', async () => {
+    registerWhoami('broken', { quick: true });
+    Object.assign(getRegistry().get('broken/whoami')!, { _lazy: true, _modulePath: '/missing/opencli-auth-fixture.js' });
+    registerWhoami('working', { quick: true, quickLoggedIn: true });
+    expect((await collectAuthRefresh({ statePath: await tempStatePath() })).map(r => r.status)).toEqual(['error', 'touched']);
+  });
+  it('does not share refresh throttles across explicit profiles', async () => {
+    registerWhoami('alpha', { quick: true, quickLoggedIn: true });
+    const statePath = await tempStatePath();
+    await collectAuthRefresh({ statePath, profile: 'personal' });
+    expect((await collectAuthRefresh({ statePath, profile: 'work' }))[0]?.status).toBe('touched');
+    expect((await collectAuthRefresh({ statePath, profile: 'personal' }))[0]?.status).toBe('skipped');
+  });
+});

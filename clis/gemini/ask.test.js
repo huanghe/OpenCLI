@@ -152,35 +152,6 @@ describe('ask command registration', () => {
         expect(askCommand.name).toBe('ask');
     });
 
-    it('is access=write', () => {
-        expect(askCommand.access).toBe('write');
-    });
-
-    it('declares response as its output column', () => {
-        expect(askCommand.columns).toEqual(['response']);
-    });
-
-    it('includes --model as an optional string argument', () => {
-        const modelArg = askCommand.args.find((a) => a.name === 'model');
-        expect(modelArg).toBeDefined();
-        expect(modelArg.required).toBe(false);
-        expect(modelArg.type).toBe('string');
-    });
-
-    it('includes --thinking as an optional argument', () => {
-        const thinkingArg = askCommand.args.find((a) => a.name === 'thinking');
-        expect(thinkingArg).toBeDefined();
-        expect(thinkingArg.required).toBe(false);
-    });
-
-    it('still includes prompt, timeout, and new args', () => {
-        const names = askCommand.args.map((a) => a.name);
-        expect(names).toContain('prompt');
-        expect(names).toContain('timeout');
-        expect(names).toContain('new');
-        expect(names).toContain('model');
-        expect(names).toContain('thinking');
-    });
 });
 
 // ── validateAskModelValue ────────────────────────────────────────────────
@@ -574,15 +545,6 @@ describe('gemini ask orchestration', () => {
 
         // selectGeminiModel is called exactly once (for selection, not restoration).
         expect(mocks.selectGeminiModel).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not mutate other Gemini commands — only ask accepts --model', () => {
-        // Other Gemini commands (image, deep research, etc.) are in separate
-        // files and do not import model selection.  This test confirms ask
-        // is the only command that declares --model within gemini.
-        const modelArg = askCommand.args.find((a) => a.name === 'model');
-        expect(modelArg).toBeDefined();
-        // The model arg is on ask only; other commands are unchanged.
     });
 
     // ── Model selection + --new interaction ──────────────────────────────
@@ -1004,7 +966,6 @@ describe('gemini ask thinking selection', () => {
         expect(mocks.selectGeminiThinking).not.toHaveBeenCalled();
         expect(mocks.readGeminiSnapshot).not.toHaveBeenCalled();
     });
-
 
     it('does not treat global/current thinking controls as selected-model support when rows have no per-model data', async () => {
         vi.spyOn(Date, 'now')

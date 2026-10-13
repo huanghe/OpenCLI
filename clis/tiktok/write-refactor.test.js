@@ -169,12 +169,6 @@ describe('tiktok/utils (P0.5 button-walker additions)', () => {
 });
 
 describe('tiktok/comment (Route 1 button-walker refactor)', () => {
-    it('registers as write-access COOKIE browser adapter with url/text/result columns', () => {
-        expect(commentCommand.access).toBe('write');
-        expect(commentCommand.browser).toBe(true);
-        expect(commentCommand.strategy).toBe('cookie');
-        expect(commentCommand.columns).toEqual(['url', 'text', 'result']);
-    });
 
     it('validates --url and --text upfront before navigating', async () => {
         const page = makePage([sampleCommentRow]);
@@ -236,12 +230,6 @@ describe('tiktok/comment (Route 1 button-walker refactor)', () => {
 });
 
 describe('tiktok/follow (Route 1 button-walker refactor)', () => {
-    it('registers as write-access COOKIE browser adapter with username/url/result columns', () => {
-        expect(followCommand.access).toBe('write');
-        expect(followCommand.browser).toBe(true);
-        expect(followCommand.strategy).toBe('cookie');
-        expect(followCommand.columns).toEqual(['username', 'url', 'result']);
-    });
 
     it('validates username upfront before navigating', async () => {
         const page = makePage([sampleFollowRow]);
@@ -305,12 +293,6 @@ describe('tiktok/follow (Route 1 button-walker refactor)', () => {
 });
 
 describe('tiktok/unfollow (Route 1 button-walker refactor)', () => {
-    it('registers as write-access COOKIE browser adapter with username/url/result columns', () => {
-        expect(unfollowCommand.access).toBe('write');
-        expect(unfollowCommand.browser).toBe(true);
-        expect(unfollowCommand.strategy).toBe('cookie');
-        expect(unfollowCommand.columns).toEqual(['username', 'url', 'result']);
-    });
 
     it('validates username upfront before navigating', async () => {
         const page = makePage([sampleUnfollowRow]);

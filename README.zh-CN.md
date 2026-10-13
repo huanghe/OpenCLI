@@ -148,7 +148,7 @@ Agent 在内部自动处理所有 `opencli browser` 命令——你只需用自�
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `OPENCLI_WINDOW` | 命令默认值 | 设为 `foreground` 或 `background` 来覆盖 Browser Bridge 窗口位置。浏览器型命令也支持 `--window <foreground\|background>` |
-| `OPENCLI_SITE_SESSION` | adapter 默认值 | 设为 `ephemeral` 或 `persistent`，覆盖浏览器型 adapter 命令的 `siteSession` 元数据。`ephemeral` 会在命令结束时关闭一次性自动化窗口；`persistent` 会复用该站点的 session。命令级 `--site-session` 优先。 |
+| `OPENCLI_SITE_SESSION` | adapter 默认值 | 设为 `ephemeral` 或 `persistent`，覆盖浏览器型 adapter 命令的 `siteSession` 元数据。`ephemeral` 会在命令结束时释放一次性标签页，自动化窗口会保留为可复用的容器；`persistent` 会复用该站点的 session。命令级 `--site-session` 优先。 |
 | `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `45` | 浏览器连接超时（秒） |
 | `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | 单个浏览器命令超时（秒） |
 | `OPENCLI_CDP_ENDPOINT` | — | Chrome DevTools Protocol 端点，用于远程浏览器 |
@@ -292,6 +292,7 @@ opencli plugin uninstall my-tool                            # 卸载
 
 | 插件 | 类型 | 描述 |
 |------|------|------|
+| [opencli-plugin-amap](https://github.com/vecyang1/opencli-plugin-amap) | JS | 高德地图收藏地点与路线导出、坐标转换 (GCJ-02/WGS-84) 与 SSR 搜索 |
 | [opencli-plugin-github-trending](https://github.com/ByteYue/opencli-plugin-github-trending) | JS | GitHub Trending 仓库 |
 | [opencli-plugin-hot-digest](https://github.com/ByteYue/opencli-plugin-hot-digest) | JS | 多平台热榜聚合 |
 | [opencli-plugin-juejin](https://github.com/Astro-Han/opencli-plugin-juejin) | JS | 稀土掘金热门文章 |

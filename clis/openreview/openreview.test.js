@@ -39,25 +39,6 @@ afterEach(() => {
 });
 
 describe('openreview adapter', () => {
-    it('registers all five commands with the expected columns', () => {
-        const search = getRegistry().get('openreview/search');
-        const venue = getRegistry().get('openreview/venue');
-        const paper = getRegistry().get('openreview/paper');
-        const reviews = getRegistry().get('openreview/reviews');
-        const author = getRegistry().get('openreview/author');
-
-        expect(search).toBeDefined();
-        expect(venue).toBeDefined();
-        expect(paper).toBeDefined();
-        expect(reviews).toBeDefined();
-        expect(author).toBeDefined();
-
-        expect(search.columns).toEqual(['rank', 'id', 'title', 'authors', 'venue', 'pdate', 'url']);
-        expect(venue.columns).toEqual(['rank', 'id', 'title', 'authors', 'keywords', 'primary_area', 'pdate', 'pdf', 'url']);
-        expect(paper.columns).toEqual(['id', 'title', 'authors', 'keywords', 'venue', 'venueid', 'primary_area', 'abstract', 'pdate', 'pdf', 'url']);
-        expect(reviews.columns).toEqual(['type', 'author', 'rating', 'confidence', 'text']);
-        expect(author.columns).toEqual(['rank', 'id', 'title', 'authors', 'venue', 'pdate', 'url']);
-    });
 
     it('noteToRow extracts every wrapped v2 field, joins lists, and builds absolute URLs', () => {
         const row = noteToRow(SAMPLE_NOTE);

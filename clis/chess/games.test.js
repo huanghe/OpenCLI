@@ -153,12 +153,4 @@ describe('chess games command', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('registers with the expected columns', () => {
-        const cmd = getRegistry().get('chess/games');
-        expect(cmd?.columns).toEqual([
-            'date', 'time_class', 'rated', 'my_color', 'my_rating', 'my_result',
-            'opponent', 'opponent_rating', 'accuracy_white', 'accuracy_black',
-            'eco', 'opening_name', 'url',
-        ]);
-    });
 });

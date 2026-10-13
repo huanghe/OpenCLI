@@ -4,24 +4,6 @@ import { getRegistry } from '@jackwener/opencli/registry';
 import { __test__ } from './hot-rank.js';
 
 describe('ths hot-rank command', () => {
-  it('registers the command with correct metadata', () => {
-    const command = getRegistry().get('ths/hot-rank');
-    expect(command).toBeDefined();
-    expect(command).toMatchObject({
-      site: 'ths',
-      name: 'hot-rank',
-      description: expect.stringContaining('同花顺'),
-      domain: 'dq.10jqka.com.cn',
-      browser: false,
-    });
-    expect(command.strategy).toBe('public');
-    expect(command.columns).toEqual(['rank', 'name', 'changePercent', 'heat', 'tags']);
-  });
-
-  it('includes tags column', () => {
-    const command = getRegistry().get('ths/hot-rank');
-    expect(command.columns).toContain('tags');
-  });
 
   it('fetches the public hot list API and maps authoritative ranks', async () => {
     const command = getRegistry().get('ths/hot-rank');

@@ -22,6 +22,7 @@ import { PKG_VERSION } from './version.js';
 const CACHE_DIR = path.join(os.homedir(), '.opencli');
 const CACHE_FILE = path.join(CACHE_DIR, 'update-check.json');
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+const RETRY_INTERVAL_MS = 5 * 60 * 1000; // Back off failed requests without consuming the success window.
 const EXTENSION_STALE_MS = 7 * 24 * 60 * 60 * 1000; // 7d
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org/@jackwener/opencli/latest';
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/jackwener/OpenCLI/releases?per_page=20';
@@ -31,6 +32,9 @@ interface UpdateCache {
   // Optional because the daemon may write the cache first via `recordExtensionVersion`.
   lastCheck?: number;
   latestVersion?: string;
+  lastAttempt?: number;
+  extensionLastCheck?: number;
+  extensionLastAttempt?: number;
   latestExtensionVersion?: string;
   // Daemon hello fields.
   currentExtensionVersion?: string;
@@ -162,16 +166,13 @@ function extractLatestExtensionVersionFromReleases(releases: GitHubRelease[]): s
 /** Fetch the latest extension version from GitHub Releases. */
 async function fetchLatestExtensionVersion(): Promise<string | undefined> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(GITHUB_RELEASES_URL, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(3000),
       headers: { 'User-Agent': `opencli/${PKG_VERSION}`, Accept: 'application/vnd.github+json' },
     });
-    clearTimeout(timer);
     if (!res.ok) return undefined;
     const releases = await res.json() as GitHubRelease[];
-    return extractLatestExtensionVersionFromReleases(releases);
+    return Array.isArray(releases) ? extractLatestExtensionVersionFromReleases(releases) : undefined;
   } catch {
     return undefined;
   }
@@ -183,29 +184,36 @@ async function fetchLatestExtensionVersion(): Promise<string | undefined> {
  */
 export function checkForUpdateBackground(): void {
   if (isCI()) return;
-  if (_cache?.lastCheck && Date.now() - _cache.lastCheck < CHECK_INTERVAL_MS) return;
+  const cache = readCacheSync();
+  const now = Date.now();
+  const due = (success?: number, attempt?: number) =>
+    (!success || now - success >= CHECK_INTERVAL_MS) &&
+    (!attempt || now - attempt >= RETRY_INTERVAL_MS);
 
-  void (async () => {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch(NPM_REGISTRY_URL, {
-        signal: controller.signal,
-        headers: { 'User-Agent': `opencli/${PKG_VERSION}` },
-      });
-      clearTimeout(timer);
-      if (!res.ok) return;
-      const data = await res.json() as { version?: string };
-      if (typeof data.version === 'string') {
-        const extVersion = await fetchLatestExtensionVersion();
-        const updates: Partial<UpdateCache> = { lastCheck: Date.now(), latestVersion: data.version };
-        if (extVersion) updates.latestExtensionVersion = extVersion;
-        writeCacheMerge(updates);
-      }
-    } catch {
-      // Network error: silently skip, try again next run
-    }
-  })();
+  // Independent services must not share a success timestamp or gate one another.
+  if (due(cache?.lastCheck, cache?.lastAttempt)) {
+    writeCacheMerge({ lastAttempt: now });
+    void (async () => {
+      try {
+        const res = await fetch(NPM_REGISTRY_URL, {
+          signal: AbortSignal.timeout(3000),
+          headers: { 'User-Agent': `opencli/${PKG_VERSION}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { version?: string };
+        if (typeof data.version === 'string' && data.version.trim()) {
+          writeCacheMerge({ lastCheck: Date.now(), latestVersion: data.version });
+        }
+      } catch { /* Retry after the short failure backoff. */ }
+    })();
+  }
+  if (due(cache?.extensionLastCheck, cache?.extensionLastAttempt)) {
+    writeCacheMerge({ extensionLastAttempt: now });
+    void (async () => {
+      const version = await fetchLatestExtensionVersion();
+      if (version) writeCacheMerge({ extensionLastCheck: Date.now(), latestExtensionVersion: version });
+    })();
+  }
 }
 
 /**

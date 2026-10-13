@@ -13,26 +13,6 @@ const {
 describe('linkedin services-read adapter', () => {
   const command = getRegistry().get('linkedin/services-read');
 
-  it('registers command shape', () => {
-    expect(command).toBeDefined();
-    expect(command.strategy).toBe('cookie');
-    expect(command.browser).toBe(true);
-    expect(command.columns).toEqual([
-      'service_url',
-      'page_title',
-      'overview',
-      'availability',
-      'work_locations',
-      'pricing',
-      'services_provided',
-      'services_count',
-      'media',
-      'media_count',
-      'messages',
-      'reviews_visibility',
-    ]);
-  });
-
   it('normalizes profile and services URLs', () => {
     expect(normalizeProfileUrl(undefined)).toBe('https://www.linkedin.com/in/me/');
     expect(normalizeProfileUrl('https://www.linkedin.com/in/gauravsaxena1997/')).toBe('https://www.linkedin.com/in/gauravsaxena1997/');

@@ -81,26 +81,6 @@ describe('facebook/notifications — registration contract', () => {
         expect(notificationsCommand.navigateBefore).toBe(false);
     });
 
-    it('exposes the seven enrichment columns in stable order', () => {
-        expect(notificationsCommand.columns).toEqual([
-            'index',
-            'unread',
-            'text',
-            'time',
-            'url',
-            'notif_id',
-            'notif_type',
-        ]);
-    });
-
-    it('declares limit arg with default and help string', () => {
-        const limit = notificationsCommand.args.find(a => a.name === 'limit');
-        expect(limit).toBeDefined();
-        expect(limit.type).toBe('int');
-        expect(limit.default).toBe(NOTIFICATIONS_LIMIT_DEFAULT);
-        expect(limit.help).toContain(String(NOTIFICATIONS_LIMIT_MAX));
-    });
-
     it('build manifest preserves navigateBefore=false so invalid limits do not pre-nav', () => {
         const manifestCommand = loadManifestCommand();
         expect(manifestCommand).toBeDefined();

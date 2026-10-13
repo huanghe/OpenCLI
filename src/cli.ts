@@ -5,6 +5,7 @@
  * Dynamic adapter commands are registered via commanderAdapter.ts.
  */
 
+import { normalizeOutputFormat } from './output-format.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,7 +20,7 @@ import { printCompletionScript } from './completion.js';
 import { listOpenCliSkills, readOpenCliSkill } from './skills.js';
 import { registerAllCommands } from './commanderAdapter.js';
 import { formatRootAdapterHelpText, installCommanderNamespaceStructuredHelp, installStructuredHelp, leadingPositionalFromUsage, rootHelpData, type RootAdapterGroups } from './help.js';
-import { EXIT_CODES, getErrorMessage, BrowserConnectError, CliError } from './errors.js';
+import { EXIT_CODES, getErrorMessage, BrowserConnectError, CliError, toEnvelope } from './errors.js';
 import { TargetError, type TargetErrorCode } from './browser/target-errors.js';
 import { resolveTargetJs, getTextResolvedJs, getValueResolvedJs, getAttributesResolvedJs, selectResolvedJs, isAutocompleteResolvedJs, type ResolveOptions, type TargetMatchLevel } from './browser/target-resolver.js';
 import { buildFindJs, buildSemanticFindJs, isFindError, type FindResult, type FindError, type SemanticFindOptions } from './browser/find.js';
@@ -664,7 +665,7 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
   program
     .command('list')
     .description('List all available CLI commands')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', normalizeOutputFormat, 'table')
     .action((opts) => {
       const registry = getRegistry();
       const commands = [...new Set(registry.values())].sort((a, b) => fullName(a).localeCompare(fullName(b)));
@@ -759,7 +760,7 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
   skillsCmd
     .command('list')
     .description('List bundled opencli-* skills')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', normalizeOutputFormat, 'table')
     .action((opts) => {
       const rows = listOpenCliSkills();
       renderOutput(rows, {
@@ -802,7 +803,7 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
     .description('Scan adapters for agent-native convention violations')
     .argument('[target]', 'site or site/name')
     .option('--site <site>', 'Limit audit to one site')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json, yaml', normalizeOutputFormat, 'table')
     .option('--strict', 'Exit non-zero when violations are found', false)
     .action(async (target, opts) => {
       const { runConventionAudit, renderConventionAuditText } = await import('./convention-audit.js');
@@ -3049,7 +3050,7 @@ cli({
   pluginCmd
     .command('list')
     .description('List installed plugins')
-    .option('-f, --format <fmt>', 'Output format: table, json', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json', normalizeOutputFormat, 'table')
     .action(async (opts) => {
       const { listPlugins } = await import('./plugin.js');
       const plugins = listPlugins();
@@ -3406,7 +3407,13 @@ cli({
 }
 
 export function runCli(BUILTIN_CLIS: string, USER_CLIS: string): void {
-  createProgram(BUILTIN_CLIS, USER_CLIS).parse();
+  try {
+    createProgram(BUILTIN_CLIS, USER_CLIS).parse();
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    console.error(JSON.stringify(toEnvelope(error), null, 2));
+    process.exitCode = error.exitCode;
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -13,6 +13,15 @@ import { runCli, parseJsonOutput } from './helpers.js';
 
 describe('management commands E2E', () => {
 
+  it.each([['list'], ['auth', 'status', '--site', 'ctrip'], ['yollomi', 'models']])(
+    '%s rejects an unknown format with a usage error', async (...args) => {
+      const result = await runCli([...args, '-f', 'bogus']);
+      expect(result.code).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(JSON.parse(result.stderr).error).toMatchObject({ code: 'ARGUMENT', exitCode: 2 });
+    },
+  );
+
   // ── list ──
   it('list shows all registered commands', async () => {
     const { stdout, code } = await runCli(['list', '-f', 'json']);

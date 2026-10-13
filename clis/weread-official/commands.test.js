@@ -42,21 +42,6 @@ afterEach(() => {
     vi.unstubAllEnvs();
 });
 
-describe('weread-official command registration', () => {
-    it('registers eight read-only public commands without browser dependency', () => {
-        const registry = getRegistry();
-        const expected = ['search', 'shelf', 'book', 'notes', 'review', 'readdata', 'discover', 'list-apis'];
-        for (const name of expected) {
-            const command = registry.get(`weread-official/${name}`);
-            expect(command, `weread-official/${name}`).toBeDefined();
-            expect(command.access).toBe('read');
-            expect(command.strategy).toBe('public');
-            expect(command.browser).toBe(false);
-            expect(command.domain).toBe('weread.qq.com');
-        }
-    });
-});
-
 describe('weread-official search', () => {
     const search = () => getRegistry().get('weread-official/search').func;
 

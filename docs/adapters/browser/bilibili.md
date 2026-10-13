@@ -101,6 +101,8 @@ opencli bilibili hot -v
 
 ## Notes
 
+- `subtitle` includes the selected track's `language` and `track_type` on every row. `track_type` is `ai` for an AI-marked track, `cc` for an explicitly non-AI track, and `unknown` when the source does not identify the track type.
+
 - `opencli bilibili feed` without `uid` reads your following feed
 - `opencli bilibili feed <uid-or-name>` reads a specific user's dynamics
 - `user-videos` fills `likes` from one extra medialist request per page (`arc/search`'s `vlist[]` carries no like count at all, so the column used to read `0` for every row). `likes_known` says whether that row's number is real — medialist only lists uploads in pubdate order and skips some (paid courses, charging-exclusive), so rows it does not cover report `likes: 0, likes_known: false` rather than a fake zero. With `--order click`/`stow` most rows fall outside that order and stay unknown

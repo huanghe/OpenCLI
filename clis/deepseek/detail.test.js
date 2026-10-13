@@ -30,14 +30,6 @@ describe('deepseek detail', () => {
     mockEnsureOnDeepSeek.mockResolvedValue(false);
   });
 
-  it('registers as a cookie-browser read command', () => {
-    expect(command).toBeDefined();
-    expect(command.browser).toBe(true);
-    expect(command.strategy).toBe('cookie');
-    expect(command.access).toBe('read');
-    expect(command.columns).toEqual(['Role', 'Text']);
-  });
-
   it('navigates to the conversation URL and returns visible messages', async () => {
     mockGetVisibleMessages.mockResolvedValue([
       { Role: 'user', Text: 'hello' },

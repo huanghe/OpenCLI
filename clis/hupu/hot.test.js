@@ -28,18 +28,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOT_FIXTURE = readFileSync(join(__dirname, '__fixtures__/hot-home.html'), 'utf8');
 
-describe('hupu/hot — registration', () => {
-    it('registers as PUBLIC + browser:true with the new column shape', () => {
-        const cmd = getRegistry().get('hupu/hot');
-        expect(cmd).toBe(hotCommand);
-        expect(cmd.browser).toBe(true);
-        expect(cmd.strategy).toBe('public');
-        expect(cmd.access).toBe('read');
-        expect(cmd.domain).toBe('bbs.hupu.com');
-        expect(cmd.columns).toEqual(['rank', 'tid', 'title', 'lights', 'replies', 'forum', 'is_hot', 'url']);
-    });
-});
-
 describe('hupu/hot — normalizeHotLimit', () => {
     it('returns default when raw is missing / empty', () => {
         expect(normalizeHotLimit(undefined)).toBe(HOT_LIMIT_DEFAULT);

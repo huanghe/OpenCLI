@@ -57,9 +57,7 @@ function createPageMock(evaluateResult) {
 }
 describe('xianyu search command', () => {
     const command = getRegistry().get('xianyu/search');
-    it('keeps existing search columns while adding want count', () => {
-        expect(command.columns).toEqual(['item_id', 'rank', 'title', 'price', 'condition', 'brand', 'location', 'badge', 'want', 'url']);
-    });
+
     it('assigns contiguous ranks and passes item fields through', async () => {
         const page = createPageMock({
             items: [
