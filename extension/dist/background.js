@@ -215,7 +215,8 @@ async function setFileInputFiles(tabId, files, selector) {
       };
       chrome.debugger.onEvent.addListener(listener);
       void sendDebuggerCommand({ tabId }, "Runtime.evaluate", {
-        expression: `document.querySelector(${JSON.stringify(query)}).click()`
+        expression: `document.querySelector(${JSON.stringify(query)}).click()`,
+        userGesture: true
       }).catch((err) => {
         cleanup();
         reject(err instanceof Error ? err : new Error(String(err)));

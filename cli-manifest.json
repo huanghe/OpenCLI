@@ -28407,6 +28407,118 @@
     "sourceFile": "producthunt/today.js"
   },
   {
+    "site": "proton",
+    "name": "inbox",
+    "description": "List sender-filtered inbox metadata via API; optionally read the newest message for a code",
+    "access": "read",
+    "example": "opencli proton inbox --from ifood --read-code -f json",
+    "domain": "mail.proton.me",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "from",
+        "type": "str",
+        "required": false,
+        "help": "Case-insensitive substring of the sender name or address"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Maximum matching messages (1..100)"
+      },
+      {
+        "name": "since",
+        "type": "int",
+        "default": 0,
+        "required": false,
+        "help": "Only messages at or after this Unix timestamp (seconds)"
+      },
+      {
+        "name": "read-code",
+        "type": "bool",
+        "default": false,
+        "required": false,
+        "help": "Open the newest match and extract a code; may mark that message read"
+      },
+      {
+        "name": "timeout",
+        "type": "int",
+        "default": 30,
+        "required": false,
+        "help": "Seconds to wait for selected message decryption (1..900)"
+      }
+    ],
+    "columns": [
+      "id",
+      "sender",
+      "subject",
+      "time",
+      "code"
+    ],
+    "type": "js",
+    "modulePath": "proton/inbox.js",
+    "sourceFile": "proton/inbox.js",
+    "navigateBefore": false,
+    "siteSession": "persistent"
+  },
+  {
+    "site": "proton",
+    "name": "login",
+    "description": "Open proton login and wait until the browser session is authenticated",
+    "access": "write",
+    "domain": "mail.proton.me",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "timeout",
+        "type": "int",
+        "default": 300,
+        "required": false,
+        "help": "Maximum seconds to wait for the user to finish login"
+      }
+    ],
+    "columns": [
+      "status",
+      "logged_in",
+      "site",
+      "id",
+      "username",
+      "email"
+    ],
+    "type": "js",
+    "modulePath": "proton/login.js",
+    "sourceFile": "proton/login.js",
+    "navigateBefore": false,
+    "siteSession": "persistent",
+    "defaultWindowMode": "foreground"
+  },
+  {
+    "site": "proton",
+    "name": "whoami",
+    "description": "Show the Proton account verified by the authenticated Mail API",
+    "access": "read",
+    "domain": "mail.proton.me",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [],
+    "columns": [
+      "logged_in",
+      "site",
+      "id",
+      "username",
+      "email"
+    ],
+    "type": "js",
+    "modulePath": "proton/whoami.js",
+    "sourceFile": "proton/whoami.js",
+    "navigateBefore": false,
+    "siteSession": "persistent"
+  },
+  {
     "site": "pubmed",
     "name": "article",
     "aliases": [
