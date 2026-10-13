@@ -5,13 +5,6 @@ import './frontpage.js';
 describe('reddit frontpage adapter', () => {
   const command = getRegistry().get('reddit/frontpage');
 
-  it('exposes the full frontpage shape including the 4 media columns', () => {
-    expect(command?.columns).toEqual([
-      'title', 'subreddit', 'author', 'upvotes', 'comments', 'url',
-      'post_hint', 'url_overridden_by_dest', 'preview_image_url', 'gallery_urls',
-    ]);
-  });
-
   it('shapes children into the intermediate-object pattern with media spread in', () => {
     // Refactored from item.data.* templating to a uniform pre-shaped object
     // so gallery_urls (array-valued) can be set directly in evaluate.

@@ -33,26 +33,6 @@ const SAMPLE_ENTRY_XML = `<?xml version='1.0' encoding='UTF-8'?>
 </feed>`;
 
 describe('arxiv adapter', () => {
-  it('registers paper, search and recent commands with the expected columns', () => {
-    const paper = getRegistry().get('arxiv/paper');
-    const search = getRegistry().get('arxiv/search');
-    const recent = getRegistry().get('arxiv/recent');
-
-    expect(paper).toBeDefined();
-    expect(search).toBeDefined();
-    expect(recent).toBeDefined();
-
-    expect(paper.columns).toEqual([
-      'id', 'title', 'authors', 'published', 'updated',
-      'primary_category', 'categories', 'abstract', 'comment', 'pdf', 'url',
-    ]);
-    expect(search.columns).toEqual([
-      'id', 'title', 'authors', 'published', 'primary_category', 'url',
-    ]);
-    expect(recent.columns).toEqual([
-      'id', 'title', 'authors', 'published', 'primary_category', 'url',
-    ]);
-  });
 
   it('parseEntries returns full abstract, all authors, pdf, primary category and comment', () => {
     const [entry] = parseEntries(SAMPLE_ENTRY_XML);

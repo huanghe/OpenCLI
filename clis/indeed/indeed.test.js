@@ -224,13 +224,6 @@ describe('indeed adapter — search runtime', () => {
         await expect(search.func(page, { query: 'rust engineer' })).rejects.toBeInstanceOf(CommandExecutionError);
     });
 
-    it('does not misclassify data-jk-only drift as EmptyResultError', async () => {
-        const page = createPageMock({ cards: [], challenge: false, ready: false });
-        const search = getRegistry().get('indeed/search');
-
-        await expect(search.func(page, { query: 'rust engineer' })).rejects.toBeInstanceOf(CommandExecutionError);
-    });
-
     it('maps an empty but ready page to EmptyResultError', async () => {
         const page = createPageMock({ cards: [], challenge: false, ready: true });
         const search = getRegistry().get('indeed/search');

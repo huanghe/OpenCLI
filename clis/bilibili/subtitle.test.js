@@ -25,6 +25,22 @@ describe('bilibili subtitle', () => {
     const mockViewOk = (cid = 123456) =>
         mockApiGet.mockResolvedValueOnce({ code: 0, data: { bvid: 'BV1GbXPBeEZm', cid } });
 
+    it('reports metadata from the selected track without guessing missing AI metadata or fetching twice', async () => {
+        for (const [metadata, expected] of [[{ lan: 'ai-zh', ai_type: 0 }, 'ai'], [{ lan: 'zh-CN', ai_type: 1 }, 'ai'], [{ lan: 'zh-CN', ai_type: 0 }, 'cc'], [{ lan: 'zh-CN' }, 'unknown']]) {
+            mockApiGet.mockReset(); page.evaluate.mockReset();
+            mockViewOk();
+            mockApiGet.mockResolvedValueOnce({ code: 0, data: { subtitle: { subtitles: [
+                { lan: 'en', ai_type: 0, subtitle_url: '//example.com/en.json' },
+                { ...metadata, subtitle_url: '//example.com/selected.json' },
+            ] } } });
+            page.evaluate.mockResolvedValueOnce({ success: true, data: [{ from: 0, to: 1, content: 'Hello' }] });
+            const rows = await command.func(page, { bvid: 'BV1GbXPBeEZm', lang: metadata.lan });
+            expect(rows[0]).toMatchObject({ language: metadata.lan, track_type: expected });
+            expect(page.evaluate).toHaveBeenCalledTimes(1);
+            expect(page.evaluate.mock.calls[0][0]).toContain('https://example.com/selected.json');
+        }
+    });
+
     it('throws AuthRequiredError when bilibili hides subtitles behind login', async () => {
         mockViewOk();
         mockApiGet.mockResolvedValueOnce({
@@ -227,8 +243,8 @@ describe('bilibili subtitle', () => {
         });
         const out = await command.func(page, { bvid: 'BV1Py4y1D781' });
         expect(out).toEqual([
-            { index: 1, from: '0.00s', to: '1.50s', content: 'hello' },
-            { index: 2, from: '1.50s', to: '3.20s', content: 'world' },
+            { index: 1, from: '0.00s', to: '1.50s', content: 'hello', language: 'zh-CN', track_type: 'unknown' },
+            { index: 2, from: '1.50s', to: '3.20s', content: 'world', language: 'zh-CN', track_type: 'unknown' },
         ]);
         // 关键：不再依赖 page.goto，所有 cid 解析走 apiGet
         expect(page.goto).not.toHaveBeenCalled();

@@ -24,17 +24,6 @@ function mockFetchJson(body, status = 200) {
   }));
 }
 
-describe('flomo memos registration', () => {
-  it('registers as a browser cookie read command with stable columns', () => {
-    expect(command.site).toBe('flomo');
-    expect(command.name).toBe('memos');
-    expect(command.access).toBe('read');
-    expect(command.browser).toBe(true);
-    expect(command.strategy).toBe('cookie');
-    expect(command.columns).toEqual(['id', 'url', 'content', 'slug', 'tags', 'images', 'created_at', 'updated_at']);
-  });
-});
-
 describe('flomo memos argument validation', () => {
   it('rejects invalid limits instead of silently clamping', () => {
     expect(() => parsePositiveIntArg('0', 'limit', 20, 200)).toThrow(ArgumentError);

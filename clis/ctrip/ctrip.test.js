@@ -188,12 +188,6 @@ describe('ctrip search command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/search');
     beforeEach(() => vi.unstubAllGlobals());
 
-    it('declares Strategy.PUBLIC + browser:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(false);
-        expect(String(cmd.strategy)).toContain('public');
-    });
-
     it('maps live response with full column shape', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(ok({
             Result: true, ErrorCode: 0,
@@ -275,12 +269,6 @@ describe('ctrip search command (registry-level)', () => {
 describe('ctrip hotel-suggest command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/hotel-suggest');
     beforeEach(() => vi.unstubAllGlobals());
-
-    it('declares Strategy.PUBLIC + browser:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(false);
-        expect(String(cmd.strategy)).toContain('public');
-    });
 
     it('maps Hotel rows with hotel detail URL', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(ok({

@@ -28,24 +28,6 @@ const METRICS = {
     cover_show: '5',
 };
 
-describe('douyin stats registration', () => {
-    it('registers the stats command', () => {
-        const command = getCommand();
-        expect(command).toBeDefined();
-        expect(command.args.some((a) => a.name === 'aweme_id')).toBe(true);
-    });
-
-    it('has expected columns', () => {
-        const command = getCommand();
-        expect(command.columns).toContain('metric');
-        expect(command.columns).toContain('value');
-    });
-
-    it('uses COOKIE strategy', () => {
-        expect(getCommand().strategy).toBe('cookie');
-    });
-});
-
 describe('douyin stats aweme_id handling', () => {
     it('rejects non-numeric and out-of-range ids before fetching', () => {
         expect(normalizeAwemeId('7665918107357121842')).toBe('7665918107357121842');

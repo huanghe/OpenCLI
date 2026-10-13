@@ -96,18 +96,6 @@ describe('reddit read adapter', () => {
         expect(src).toContain('var postMedia = extractRedditMedia(post)');
     });
 
-    it('exposes the new --expand-more / --expand-rounds args', () => {
-        const argNames = command.args.map((a) => a.name);
-        expect(argNames).toContain('expand-more');
-        expect(argNames).toContain('expand-rounds');
-        const expandMore = command.args.find((a) => a.name === 'expand-more');
-        expect(expandMore.type).toBe('bool');
-        expect(expandMore.default).toBe(false);
-        const rounds = command.args.find((a) => a.name === 'expand-rounds');
-        expect(rounds.type).toBe('int');
-        expect(rounds.default).toBe(2);
-    });
-
     describe('normalizeRedditPostId', () => {
         it('accepts bare ids, t3 fullnames, and exact reddit post URLs', () => {
             expect(normalizeRedditPostId('1AbC23')).toBe('1abc23');

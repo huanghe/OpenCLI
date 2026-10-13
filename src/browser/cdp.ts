@@ -11,12 +11,14 @@
 import { WebSocket, type RawData } from 'ws';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { readFileSync, statSync } from 'node:fs';
 import type { BrowserCookie, BrowserEvaluateFunction, IPage, ScreenshotOptions } from '../types.js';
 import type { IBrowserFactory } from '../runtime.js';
 import { buildEvaluateExpression } from './utils.js';
 import { generateStealthJs } from './stealth.js';
 import { waitForDomStableJs } from './dom-helpers.js';
 import { isRecord, saveBase64ToFile } from '../utils.js';
+import { CommandExecutionError } from '../errors.js';
 import { CDPBasePage } from './base-page.js';
 
 export interface CDPTarget {
@@ -59,6 +61,13 @@ export class CDPBridge implements IBrowserFactory {
     const endpoint = opts?.cdpEndpoint ?? process.env.OPENCLI_CDP_ENDPOINT;
     if (!endpoint) throw new Error('CDP endpoint not provided (pass cdpEndpoint or set OPENCLI_CDP_ENDPOINT)');
 
+    // Validate before connecting: reading a FIFO synchronously could block forever.
+    const initPath = process.env.OPENCLI_CDP_INIT_SCRIPT;
+    if (initPath && !statSync(initPath).isFile()) {
+      throw new Error('OPENCLI_CDP_INIT_SCRIPT must point to a regular JavaScript file');
+    }
+    const initSource = initPath ? readFileSync(initPath, 'utf8') : undefined;
+
     let wsUrl = endpoint;
     if (endpoint.startsWith('http')) {
       const targets = await fetchJsonDirect(`${endpoint.replace(/\/$/, '')}/json`) as CDPTarget[];
@@ -84,6 +93,8 @@ export class CDPBridge implements IBrowserFactory {
         try {
           await this.send('Page.enable');
           await this.send('Page.addScriptToEvaluateOnNewDocument', { source: generateStealthJs() });
+          // Optional caller script for every new document, e.g. state a headless peer cannot share across connections.
+          if (initSource !== undefined) await this.send('Page.addScriptToEvaluateOnNewDocument', { source: initSource });
         } catch (err) {
           ws.close();
           reject(err instanceof Error ? err : new Error(String(err)));
@@ -242,8 +253,15 @@ class CDPPage extends CDPBasePage {
   }
 
   async getCookies(opts: { domain?: string; url?: string } = {}): Promise<BrowserCookie[]> {
-    const result = await this.bridge.send('Network.getCookies', opts.url ? { urls: [opts.url] } : {});
-    const cookies = isRecord(result) && Array.isArray(result.cookies) ? result.cookies : [];
+    // Network.getCookies without URLs is scoped to the current page, which may
+    // be on another site during a no-navigation auth check.
+    const result = opts.url
+      ? await this.bridge.send('Network.getCookies', { urls: [opts.url] })
+      : await this.bridge.send('Storage.getCookies', {});
+    if (!isRecord(result) || !Array.isArray(result.cookies) || !result.cookies.every(isCookie)) {
+      throw new CommandExecutionError('CDP returned an invalid cookies response');
+    }
+    const cookies = result.cookies;
     const domain = opts.domain;
     return domain
       ? cookies.filter((cookie): cookie is BrowserCookie => isCookie(cookie) && matchesCookieDomain(cookie.domain, domain))
@@ -472,7 +490,7 @@ function matchesCookieDomain(cookieDomain: string, targetDomain: string): boolea
   const normalizedCookieDomain = cookieDomain.replace(/^\./, '').toLowerCase();
   const normalizedTargetDomain = targetDomain.replace(/^\./, '').toLowerCase();
   return normalizedTargetDomain === normalizedCookieDomain
-    || normalizedTargetDomain.endsWith(`.${normalizedCookieDomain}`);
+    || normalizedCookieDomain.endsWith(`.${normalizedTargetDomain}`);
 }
 
 function selectCDPTarget(targets: CDPTarget[]): CDPTarget | undefined {

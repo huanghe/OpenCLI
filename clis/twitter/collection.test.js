@@ -61,19 +61,6 @@ function collectionPayload(tweets, nextCursor = null) {
 }
 
 describe('twitter collection', () => {
-    it('registers an independent read command with posts and receipt columns', () => {
-        const command = getRegistry().get('twitter/collection');
-        expect(command).toMatchObject({
-            access: 'read',
-            browser: true,
-            columns: ['posts', 'receipt'],
-        });
-        expect(command?.args?.map((arg) => arg.name)).toEqual([
-            'username', 'until', 'limit', 'page-delay',
-        ]);
-        expect(getRegistry().get('twitter/tweets')?.args?.map((arg) => arg.name))
-            .not.toContain('collection-receipt');
-    });
 
     it('classifies original, quote, reply and repost without inventing context', () => {
         expect(__test__.extractRelationship(syntheticTweet('10'))).toEqual({

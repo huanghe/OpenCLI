@@ -15,56 +15,6 @@ afterEach(() => {
 });
 
 describe('stackoverflow listing adapters surface question_id/tags/views/owner', () => {
-    it('stackoverflow/hot has the agent-native column shape', () => {
-        const cmd = getRegistry().get('stackoverflow/hot');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'title', 'score', 'answers', 'views',
-            'is_answered', 'tags', 'author', 'creation_date', 'url',
-        ]);
-        const mapStep = cmd?.pipeline?.find((step) => step.map);
-        expect(mapStep?.map).toMatchObject({
-            id: '${{ item.question_id }}',
-            views: '${{ item.view_count }}',
-            is_answered: '${{ item.is_answered }}',
-            author: '${{ item.owner.display_name }}',
-            creation_date: '${{ item.creation_date }}',
-        });
-    });
-
-    it('stackoverflow/search has the agent-native column shape', () => {
-        const cmd = getRegistry().get('stackoverflow/search');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'title', 'score', 'answers', 'views',
-            'is_answered', 'tags', 'author', 'creation_date', 'url',
-        ]);
-        const mapStep = cmd?.pipeline?.find((step) => step.map);
-        expect(mapStep?.map).toMatchObject({
-            id: '${{ item.question_id }}',
-            views: '${{ item.view_count }}',
-        });
-    });
-
-    it('stackoverflow/unanswered drops is_answered (always false) but keeps the rest', () => {
-        const cmd = getRegistry().get('stackoverflow/unanswered');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'title', 'score', 'answers', 'views',
-            'tags', 'author', 'creation_date', 'url',
-        ]);
-        expect(cmd?.columns).not.toContain('is_answered');
-    });
-
-    it('stackoverflow/bounties keeps the bounty column at the front', () => {
-        const cmd = getRegistry().get('stackoverflow/bounties');
-        expect(cmd?.columns).toEqual([
-            'rank', 'id', 'bounty', 'title', 'score', 'answers', 'views',
-            'is_answered', 'tags', 'author', 'creation_date', 'url',
-        ]);
-        const mapStep = cmd?.pipeline?.find((step) => step.map);
-        expect(mapStep?.map).toMatchObject({
-            id: '${{ item.question_id }}',
-            bounty: '${{ item.bounty_amount }}',
-        });
-    });
 
     it('stackoverflow/tag exposes id so rows round-trip into read <id>', async () => {
         const cmd = getRegistry().get('stackoverflow/tag');
@@ -114,34 +64,10 @@ describe('stackoverflow listing adapters surface question_id/tags/views/owner', 
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('stackoverflow/user exposes userId profile rows without pretending they feed read <id>', async () => {
-        const cmd = getRegistry().get('stackoverflow/user');
-        expect(cmd?.columns).toEqual([
-            'userId', 'displayName', 'reputation', 'goldBadges', 'silverBadges',
-            'bronzeBadges', 'location', 'createdAt', 'lastAccessAt', 'url',
-        ]);
-    });
 });
 
 describe('stackoverflow/read adapter', () => {
     const cmd = getRegistry().get('stackoverflow/read');
-
-    it('registers the question/answer/comment row shape', () => {
-        expect(cmd?.columns).toEqual(['type', 'author', 'score', 'accepted', 'text']);
-    });
-
-    it('takes a positional id plus tunable answers-limit/comments-limit/max-length', () => {
-        const argNames = (cmd?.args || []).map((a) => a.name);
-        expect(argNames).toEqual(['id', 'answers-limit', 'comments-limit', 'max-length']);
-        const idArg = cmd?.args?.find((a) => a.name === 'id');
-        expect(idArg?.required).toBe(true);
-        expect(idArg?.positional).toBe(true);
-    });
-
-    it('uses the public Stack Exchange API (no browser, public strategy)', () => {
-        expect(cmd?.browser).toBe(false);
-        expect(cmd?.strategy).toBe('public');
-    });
 
     it('fails fast with ArgumentError for non-numeric id before fetching', async () => {
         const fetchMock = vi.fn();

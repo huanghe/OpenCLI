@@ -54,6 +54,7 @@ function extractTweet(r, seen) {
         id: tw.rest_id,
         author: screenName,
         author_avatar: extractAuthorAvatar(u),
+        author_verified: Boolean(u?.is_blue_verified || u?.legacy?.verified),
         bio,
         text: noteText || l.full_text || '',
         likes: l.favorite_count || 0,
@@ -120,7 +121,7 @@ cli({
         { name: 'limit', type: 'int', default: 50 },
         { name: 'top-by-engagement', type: 'int', default: 0, help: 'When set to N>0, re-rank the thread by weighted engagement (likes×1 + retweets×3 + replies×2 + bookmarks×5 + log10(views+1)×0.5) and return the top N. Default 0 keeps the conversation\'s structural ordering.' },
     ],
-    columns: ['id', 'author', 'author_avatar', 'bio', 'text', 'likes', 'retweets', 'views', 'url', 'has_media', 'media_urls', 'media_posters', 'media_durations', 'card', 'quoted_tweet'],
+    columns: ['id', 'author', 'author_avatar', 'bio', 'text', 'likes', 'retweets', 'views', 'url', 'has_media', 'media_urls', 'media_posters', 'media_durations', 'card', 'quoted_tweet', 'author_verified'],
     func: async (page, kwargs) => {
         let tweetId = kwargs['tweet-id'];
         const urlMatch = tweetId.match(/\/status\/(\d+)/);

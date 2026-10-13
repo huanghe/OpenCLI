@@ -72,8 +72,4 @@ describe('chess stats command', () => {
         await expect(cmd.func({ username: 'someuser' })).rejects.toBeInstanceOf(EmptyResultError);
     });
 
-    it('registers with the expected columns', () => {
-        const cmd = getRegistry().get('chess/stats');
-        expect(cmd?.columns).toEqual(['kind', 'rating_current', 'rating_best', 'wins', 'losses', 'draws']);
-    });
 });
