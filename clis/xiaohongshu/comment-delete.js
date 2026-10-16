@@ -85,6 +85,9 @@ export function buildDeleteScript({ noteId, commentId }) {
     if (env.rejected) {
       return { ok: false, reason: 'api_error', code: env.code, message: env.msg || 'delete rejected' };
     }
+    if (!env.confirmed) {
+      return { ok: false, reason: 'unconfirmed', message: 'The API returned no recognizable deletion confirmation' };
+    }
     return { ok: true };
   } catch (err) {
     return __xhsError(err);
