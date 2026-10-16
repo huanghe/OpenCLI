@@ -345,12 +345,10 @@ async function sendCommandRaw(
   const contextId = routing.contextId;
   const preferredContextId = routing.preferredContextId;
   const windowMode = params.windowMode ?? envWindowMode;
-  // OPENCLI_BROWSER_IDLE_TIMEOUT: seconds the owned automation window stays
-  // alive after its last command. Polling pipelines that fire a command every
-  // minute or two want this above the extension default so each run reuses
-  // the same window instead of paying a fresh windows.create() (and, on
-  // macOS, a focus flash). Explicit params.idleTimeout takes precedence; the
-  // extension ignores 0, so only positive integers are forwarded.
+  // Override the owned session idle timeout, not the container window lifetime.
+  // Explicit close still releases ephemeral sessions; persistent adapter sessions
+  // and borrowed bound tabs ignore idle timeouts. Per-command values take priority.
+  // The extension ignores 0, so only positive integers are forwarded.
   const rawIdleTimeout = process.env.OPENCLI_BROWSER_IDLE_TIMEOUT;
   const envIdleTimeout = rawIdleTimeout && /^\d+$/.test(rawIdleTimeout) && Number(rawIdleTimeout) > 0
     ? Number(rawIdleTimeout)
