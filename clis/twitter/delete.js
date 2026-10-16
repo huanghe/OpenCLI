@@ -59,29 +59,21 @@ function buildDeleteScript(tweetId) {
           const beforeMenuItems = new Set(document.querySelectorAll('[role="menuitem"]'));
           moreMenu.click();
 
-          // Same race one level down: the menu items were measured landing ~1s
-          // after the caret click, so a flat 1s sleep decided "Delete is missing"
-          // on a coin flip. Poll, then give the popup one more tick to finish
-          // painting so a half-rendered menu is never read as "not your tweet".
-          const readNewMenuItems = () => Array.from(document.querySelectorAll('[role="menuitem"]'))
-              .filter((item) => !beforeMenuItems.has(item));
-          let items = [];
-          for (let i = 0; i < 20; i++) {
+          // Wait for the action itself; unrelated rows can render much earlier.
+          const findDeleteButton = () => {
+              const items = Array.from(document.querySelectorAll('[role="menuitem"]'))
+                  .filter((item) => !beforeMenuItems.has(item))
+                  .filter((item) => {
+                      const text = (item.textContent || '').trim();
+                      return (text.includes('Delete') || text.includes('删除')) && !text.includes('List') && !text.includes('列表');
+                  });
+              return items.find(visible) || items[0] || null;
+          };
+          let deleteBtn = findDeleteButton();
+          for (let i = 0; i < 20 && !deleteBtn; i++) {
               await sleep(250);
-              if (!readNewMenuItems().length) continue;
-              await sleep(250);
-              const settled = readNewMenuItems();
-              items = settled.filter(visible);
-              if (!items.length) items = settled;
-              break;
+              deleteBtn = findDeleteButton();
           }
-
-          const deleteBtn = items.find((item) => {
-              const text = (item.textContent || '').trim();
-              // X localizes the menu item (zh-Hans: 删除); exclude the "Add/remove
-              // from Lists" item in both languages so we never click the wrong row.
-              return (text.includes('Delete') || text.includes('删除')) && !text.includes('List') && !text.includes('列表');
-          });
 
           if (!deleteBtn) {
               return { ok: false, message: 'The matched tweet menu did not contain Delete. This tweet may not belong to you.' };

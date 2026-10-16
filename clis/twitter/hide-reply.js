@@ -74,38 +74,19 @@ cli({
 
             moreMenu.click();
 
-            // Wait for the popup rather than sampling once after a flat 1s: on
-            // a cold call X was measured painting the menu items ~1s after the
-            // caret click, and a hidden or minimized tab clamps setTimeout to
-            // ~1s on top of that, so the old sleep decided on a coin flip. A
-            // false negative here is not just a failure — it reroutes the whole
-            // command to the parent conversation via retryOnParent.
-            const menuItemCount = () => document.querySelectorAll('[role="menuitem"]').length;
-            const menuItemsBefore = menuItemCount();
-            for (let i = 0; i < 20; i++) {
-                await new Promise(r => setTimeout(r, 250));
-                if (menuItemCount() <= menuItemsBefore) continue;
-                // One more tick so a half-painted popup is never read as final.
-                await new Promise(r => setTimeout(r, 250));
-                break;
-            }
-
-            // Look for the "Hide reply" menu item. Menu items render at the
-            // document root, not inside the article — scope is the open menu.
-            const items = document.querySelectorAll('[role="menuitem"]');
-            let hideItem = null;
-            for (const item of items) {
+            // Do not reroute to the parent while the requested action is still hydrating.
+            const findHideItem = () => Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => {
                 const text = String(item.textContent || '');
                 const testId = item.getAttribute('data-testid');
-                if (
-                    testId === 'hideReply'
+                return testId === 'hideReply'
                     || text.includes('Hide reply')
                     || text.includes('隐藏回复')
-                    || (text.includes('隐藏') && text.includes('回复') && !text.includes('取消'))
-                ) {
-                    hideItem = item;
-                    break;
-                }
+                    || (text.includes('隐藏') && text.includes('回复') && !text.includes('取消'));
+            });
+            let hideItem = findHideItem();
+            for (let i = 0; i < 20 && !hideItem; i++) {
+                await new Promise(r => setTimeout(r, 250));
+                hideItem = findHideItem();
             }
 
             if (!hideItem) {
