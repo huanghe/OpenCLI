@@ -252,6 +252,11 @@ class CDPPage extends CDPBasePage {
     return result.result?.value;
   }
 
+  /** Direct CDP evaluation has no replay/retry path. */
+  async evaluateOnce<T = unknown>(js: string): Promise<T> {
+    return this.evaluate<T>(js);
+  }
+
   async getCookies(opts: { domain?: string; url?: string } = {}): Promise<BrowserCookie[]> {
     // Network.getCookies without URLs is scoped to the current page, which may
     // be on another site during a no-navigation auth check.
