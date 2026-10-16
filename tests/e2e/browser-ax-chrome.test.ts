@@ -9,8 +9,10 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
-const EXTENSION_DIR = path.join(ROOT, 'extension');
-const DAEMON_PORT = 19825;
+// Overrides apply only to this test harness, allowing an isolated extension copy
+// to run beside a developer's normal Browser Bridge daemon.
+const EXTENSION_DIR = process.env.OPENCLI_E2E_EXTENSION_DIR || path.join(ROOT, 'extension');
+const DAEMON_PORT = Number(process.env.OPENCLI_E2E_BRIDGE_PORT || 19825);
 
 type Command = {
   id: string;
@@ -19,6 +21,10 @@ type Command = {
   surface?: 'browser' | 'adapter';
   page?: string;
   url?: string;
+  code?: string;
+  files?: string[];
+  selector?: string;
+  windowMode?: 'foreground' | 'background';
   cdpMethod?: string;
   cdpParams?: Record<string, unknown>;
 };
@@ -144,6 +150,26 @@ async function startTestSite(): Promise<TestSite> {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://a.opencli.test');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (url.pathname === '/upload') {
+      res.end(`<!doctype html>
+        <style>.zero { width:0; height:0; opacity:0 }</style>
+        <input type="file" id="visible">
+        <input type="file" id="display" style="display:none">
+        <input type="file" id="zero" class="zero">
+        <input type="file" id="multiple" multiple>
+        <div style="display:none"><input type="file" id="ancestor"></div>
+        <input type="file" id="overlay" style="opacity:0; width:100px; height:30px">
+        <input type="file" id="hidden" hidden>
+        <input type="file" id="disabled" disabled style="display:none">
+        <script>
+          window.uploadEvents = [];
+          for (const type of ['input', 'change']) document.addEventListener(type, event => {
+            window.uploadEvents.push({ id:event.target.id, type, trusted:event.isTrusted,
+              files:Array.from(event.target.files || [], file => file.name) });
+          });
+        </script>`);
+      return;
+    }
     if (url.pathname === '/same-frame') {
       res.end('<!doctype html><button>Same Frame Button</button>');
       return;
@@ -221,6 +247,7 @@ function launchChrome(chromePath: string, userDataDir: string, startUrl: string)
     '--enable-unsafe-extension-debugging',
     '--host-resolver-rules=MAP a.opencli.test 127.0.0.1,MAP b.opencli.test 127.0.0.1',
     '--site-per-process',
+    '--no-proxy-server',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-background-networking',
@@ -298,8 +325,8 @@ describe('Browser Bridge AX real Chrome smoke', () => {
     bridge = await startFakeBridge();
     if (!bridge) {
       skipReason = process.env.CI
-        ? 'Port 19825 is already in use in CI'
-        : 'Port 19825 is already in use; stop opencli daemon before running this e2e smoke locally';
+        ? `Port ${DAEMON_PORT} is already in use in CI`
+        : `Port ${DAEMON_PORT} is already in use; use an isolated extension copy and OPENCLI_E2E_BRIDGE_PORT locally`;
       return;
     }
 
@@ -341,6 +368,45 @@ describe('Browser Bridge AX real Chrome smoke', () => {
       }
     }
   });
+
+  it('uploads through the real extension chooser on visible and hidden inputs without changing styles', async () => {
+    if (skipReason) {
+      if (shouldFailOnBridgeUnavailable()) throw new Error(skipReason);
+      console.warn(`skipped — ${skipReason}`);
+      return;
+    }
+    const one = path.join(userDataDir, 'one.txt');
+    const two = path.join(userDataDir, 'two.txt');
+    fs.writeFileSync(one, 'one');
+    fs.writeFileSync(two, 'two');
+    const session = { session: `upload-smoke-${Date.now()}`, surface: 'browser' as const };
+    for (const [index, id] of ['visible', 'display', 'zero', 'multiple', 'ancestor', 'overlay', 'hidden', 'disabled', 'visible'].entries()) {
+      const nav = await bridge!.sendCommand({ action: 'navigate', ...session,
+        url: new URL(`/upload?case=${index}`, site!.url).href, windowMode: 'background' });
+      expect(nav.ok, nav.error).toBe(true);
+      const evaluate = async (expression: string) => {
+        const result = await bridge!.sendCommand({ action: 'exec', ...session, page: nav.page, code: expression });
+        expect(result.ok, result.error).toBe(true);
+        return result.data;
+      };
+      const markup = await evaluate(`document.querySelector('#${id}').outerHTML`);
+      const files = id === 'multiple' ? [one, two] : [one];
+      const uploaded = await bridge!.sendCommand({ action: 'set-file-input', ...session,
+        page: nav.page, selector: `#${id}`, files });
+      if (id === 'disabled') {
+        expect(uploaded.ok).toBe(false);
+        expect(uploaded.error).toContain('Page.fileChooserOpened not received');
+      } else {
+        expect(uploaded.ok, `${id}: ${uploaded.error}`).toBe(true);
+        const expectedNames = files.map(file => path.basename(file));
+        expect(await evaluate(`Array.from(document.querySelector('#${id}').files, file => file.name)`)).toEqual(expectedNames);
+        expect(await evaluate('window.uploadEvents')).toEqual(['input', 'change'].map(type => ({
+          id, type, trusted: true, files: expectedNames,
+        })));
+      }
+      expect(await evaluate(`document.querySelector('#${id}').outerHTML`)).toBe(markup);
+    }
+  }, 90_000);
 
   it('returns AX nodes for parent and same-origin iframe, and probes cross-origin frame support', async () => {
     if (skipReason) {

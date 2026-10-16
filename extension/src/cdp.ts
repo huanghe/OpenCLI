@@ -389,9 +389,11 @@ export async function setFileInputFiles(
       };
       chrome.debugger.onEvent.addListener(listener);
       // Open the chooser programmatically — interception suppresses the native
-      // dialog and fires Page.fileChooserOpened instead. Works for hidden inputs.
+      // dialog and fires Page.fileChooserOpened instead. Chrome requires user
+      // activation even for visible inputs; hidden inputs need no style changes.
       void sendDebuggerCommand({ tabId }, 'Runtime.evaluate', {
         expression: `document.querySelector(${JSON.stringify(query)}).click()`,
+        userGesture: true,
       }).catch((err) => {
         cleanup();
         reject(err instanceof Error ? err : new Error(String(err)));

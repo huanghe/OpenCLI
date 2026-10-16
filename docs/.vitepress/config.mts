@@ -99,6 +99,7 @@ export default defineConfig({
                 { text: 'Sina Blog', link: '/adapters/browser/sinablog' },
                 { text: 'Substack', link: '/adapters/browser/substack' },
                 { text: 'Pixiv', link: '/adapters/browser/pixiv' },
+                { text: 'Proton Mail', link: '/adapters/browser/proton' },
                 { text: 'Douban', link: '/adapters/browser/douban' },
                 { text: 'Doubao', link: '/adapters/browser/doubao' },
                 { text: 'Facebook', link: '/adapters/browser/facebook' },
