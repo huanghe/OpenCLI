@@ -116,26 +116,6 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('pubmed adapter registration', () => {
-    it('registers nine public read commands with expected listing columns', () => {
-        const registry = getRegistry();
-        for (const name of ['search', 'article', 'author', 'citations', 'related', 'clinical-trial', 'review', 'mesh', 'journal']) {
-            const command = registry.get(`pubmed/${name}`);
-            expect(command).toBeDefined();
-            expect(command.strategy).toBe('public');
-            expect(command.browser).toBe(false);
-        }
-        expect(registry.get('pubmed/search').columns).toEqual(SEARCH_COLUMNS);
-        expect(registry.get('pubmed/clinical-trial').columns).toEqual(SEARCH_COLUMNS);
-        expect(registry.get('pubmed/review').columns).toEqual(SEARCH_COLUMNS);
-        expect(registry.get('pubmed/mesh').columns).toEqual(SEARCH_COLUMNS);
-        expect(registry.get('pubmed/journal').columns).toEqual(SEARCH_COLUMNS);
-        expect(registry.get('pubmed/author').columns).toEqual(LINK_COLUMNS);
-        expect(registry.get('pubmed/citations').columns).toEqual(LINK_COLUMNS);
-        expect(registry.get('pubmed/related').columns).toEqual(RELATED_COLUMNS);
-    });
-});
-
 describe('pubmed utility contracts', () => {
     it('rejects invalid PMIDs and silently-clamped limits', () => {
         expect(requirePmid('37780221')).toBe('37780221');

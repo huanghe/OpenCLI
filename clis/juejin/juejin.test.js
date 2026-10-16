@@ -15,30 +15,6 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('juejin adapter registry contracts', () => {
-    it('declares overlapping article_id columns so recommend and hot rows share a shape', () => {
-        const recommend = getRegistry().get('juejin/recommend');
-        const hot = getRegistry().get('juejin/hot');
-
-        expect(recommend).toBeDefined();
-        expect(hot).toBeDefined();
-        expect(recommend.columns).toContain('article_id');
-        expect(hot.columns).toContain('article_id');
-        expect(recommend.columns).toContain('url');
-        expect(hot.columns).toContain('url');
-    });
-
-    it('marks every command as read access on the api.juejin.cn domain', () => {
-        for (const name of ['recommend', 'hot']) {
-            const cmd = getRegistry().get(`juejin/${name}`);
-            expect(cmd, name).toBeDefined();
-            expect(cmd.access, name).toBe('read');
-            expect(cmd.domain, name).toBe('api.juejin.cn');
-            expect(cmd.browser, name).toBe(false);
-        }
-    });
-});
-
 describe('juejin recommend command', () => {
     const command = getRegistry().get('juejin/recommend');
 

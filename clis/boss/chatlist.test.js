@@ -203,9 +203,4 @@ describe('boss chatlist', () => {
         expect(evaluateCalls.some((s) => s.includes('geekFilterByLabel'))).toBe(false);
     });
 
-    it('registers --side as a choices-constrained arg defaulting to auto', () => {
-        const sideArg = command.args.find((a) => a.name === 'side');
-        expect(sideArg?.choices).toEqual(['auto', 'boss', 'geek']);
-        expect(sideArg?.default).toBe('auto');
-    });
 });

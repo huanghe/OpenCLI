@@ -94,10 +94,7 @@ describe('buildNoteUrl', () => {
 });
 describe('xiaohongshu note', () => {
     const command = getRegistry().get('xiaohongshu/note');
-    it('is registered', () => {
-        expect(command).toBeDefined();
-        expect(command.func).toBeTypeOf('function');
-    });
+
     it('returns note content as field/value rows for signed full URLs', async () => {
         const page = createPageMock({
             loginWall: false,

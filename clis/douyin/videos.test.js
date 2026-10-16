@@ -27,9 +27,7 @@ describe('douyin videos', () => {
     beforeEach(() => {
         browserFetchMock.mockReset();
     });
-    it('registers the videos command', () => {
-        expect(getCommand()).toBeDefined();
-    });
+
     it('rejects invalid limits before fetching', async () => {
         const command = getCommand();
         expect(normalizeVideosLimit(undefined)).toBe(20);

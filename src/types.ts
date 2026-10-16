@@ -73,6 +73,8 @@ export interface IPage {
   goto(url: string, options?: { waitUntil?: 'load' | 'none'; settleMs?: number }): Promise<void>;
   evaluate<T = any>(js: string): Promise<T>;
   evaluate<Args extends unknown[], T>(fn: BrowserEvaluateFunction<Args, T>, ...args: Args): Promise<Awaited<T>>;
+  /** Execute a write without replaying page code after navigation; throws on an unknown outcome. */
+  evaluateOnce?<T = any>(js: string): Promise<T>;
   /** Safely evaluate JS with pre-serialized arguments — prevents injection. */
   evaluateWithArgs?(js: string, args: Record<string, unknown>): Promise<any>;
   /**

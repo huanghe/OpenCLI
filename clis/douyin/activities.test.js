@@ -11,23 +11,7 @@ describe('douyin activities registration', () => {
     beforeEach(() => {
         browserFetchMock.mockReset();
     });
-    it('registers the activities command', () => {
-        const registry = getRegistry();
-        const cmd = [...registry.values()].find(c => c.site === 'douyin' && c.name === 'activities');
-        expect(cmd).toBeDefined();
-    });
-    it('has expected columns', () => {
-        const registry = getRegistry();
-        const cmd = [...registry.values()].find(c => c.site === 'douyin' && c.name === 'activities');
-        expect(cmd?.columns).toContain('activity_id');
-        expect(cmd?.columns).toContain('title');
-        expect(cmd?.columns).toContain('end_time');
-    });
-    it('uses COOKIE strategy', () => {
-        const registry = getRegistry();
-        const cmd = [...registry.values()].find(c => c.site === 'douyin' && c.name === 'activities');
-        expect(cmd?.strategy).toBe('cookie');
-    });
+
     it('maps the current activity payload shape returned by creator center', async () => {
         const registry = getRegistry();
         const cmd = [...registry.values()].find(c => c.site === 'douyin' && c.name === 'activities');

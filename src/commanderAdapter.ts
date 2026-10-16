@@ -10,6 +10,7 @@
  * All execution logic lives in execution.ts.
  */
 
+import { normalizeOutputFormat } from './output-format.js';
 import { Command } from 'commander';
 import { log } from './logger.js';
 import yaml from 'js-yaml';
@@ -57,7 +58,7 @@ export function registerCommandToProgram(siteCmd: Command, cmd: CliCommand): voi
     }
   }
   subCmd
-    .option('-f, --format <fmt>', 'Output format: table, plain, json, yaml, md, csv', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, plain, json, yaml, md, csv', normalizeOutputFormat, 'table')
     .option('--trace <mode>', 'Trace capture: off, on, retain-on-failure', 'off')
     .option('-v, --verbose', 'Debug output', false);
   if (cmd.browser) {
@@ -191,7 +192,6 @@ function renderError(err: unknown, cmdName: string, verbose: boolean, traceMode?
  */
 export function registerAllCommands(
   program: Command,
-  siteGroups: Map<string, Command>,
 ): string[] {
   const seen = new Set<CliCommand>();
   const commandsBySite = new Map<string, CliCommand[]>();
@@ -204,11 +204,7 @@ export function registerAllCommands(
   }
 
   for (const [site, commands] of commandsBySite) {
-    let siteCmd = siteGroups.get(site);
-    if (!siteCmd) {
-      siteCmd = program.command(site);
-      siteGroups.set(site, siteCmd);
-    }
+    const siteCmd = program.command(site);
     for (const cmd of commands) {
       registerCommandToProgram(siteCmd, cmd);
     }

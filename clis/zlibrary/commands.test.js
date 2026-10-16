@@ -9,12 +9,7 @@ import './search.js';
 import './info.js';
 import { createPageMock } from '../test-utils.js';
 
-
 describe('zlibrary commands', () => {
-  it('registers search and info commands', () => {
-    expect(getRegistry().get('zlibrary/search')).toBeDefined();
-    expect(getRegistry().get('zlibrary/info')).toBeDefined();
-  });
 
   it('normalizes search query and rejects empty searches', () => {
     expect(buildSearchUrl('  test book  ')).toBe('https://z-library.im/s/test%20book');

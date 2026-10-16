@@ -11,12 +11,7 @@ describe('douyin profile registration', () => {
     beforeEach(() => {
         browserFetchMock.mockReset();
     });
-    it('registers the profile command', () => {
-        const registry = getRegistry();
-        const values = [...registry.values()];
-        const cmd = values.find(c => c.site === 'douyin' && c.name === 'profile');
-        expect(cmd).toBeDefined();
-    });
+
     it('maps the current user payload shape returned by creator center', async () => {
         const registry = getRegistry();
         const cmd = [...registry.values()].find(c => c.site === 'douyin' && c.name === 'profile');

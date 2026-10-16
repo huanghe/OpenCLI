@@ -32,7 +32,7 @@ describe('browser helpers', () => {
     expect(classifyBrowserError(new Error('Permission denied')).kind).toBe('non-retryable');
   });
 
-  it('prefers the real Electron app target over DevTools and blank pages', () => {
+  it('prefers the browser page target over DevTools and blank pages', () => {
     const target = cdpTest.selectCDPTarget([
       {
         type: 'page',
@@ -47,8 +47,8 @@ describe('browser helpers', () => {
         webSocketDebuggerUrl: 'ws://127.0.0.1:9224/blank',
       },
       {
-        type: 'app',
-        title: 'Antigravity',
+        type: 'page',
+        title: 'Example',
         url: 'http://localhost:3000/',
         webSocketDebuggerUrl: 'ws://127.0.0.1:9224/app',
       },
@@ -58,99 +58,24 @@ describe('browser helpers', () => {
   });
 
   it('honors OPENCLI_CDP_TARGET when multiple inspectable targets exist', () => {
-    vi.stubEnv('OPENCLI_CDP_TARGET', 'codex');
+    vi.stubEnv('OPENCLI_CDP_TARGET', 'docs');
 
     const target = cdpTest.selectCDPTarget([
       {
-        type: 'app',
-        title: 'Cursor',
-        url: 'http://localhost:3000/cursor',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9226/cursor',
+        type: 'page',
+        title: 'Example',
+        url: 'http://localhost:3000/example',
+        webSocketDebuggerUrl: 'ws://127.0.0.1:9226/example',
       },
       {
-        type: 'app',
-        title: 'OpenAI Codex',
-        url: 'http://localhost:3000/codex',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9226/codex',
+        type: 'page',
+        title: 'Documentation',
+        url: 'http://localhost:3000/docs',
+        webSocketDebuggerUrl: 'ws://127.0.0.1:9226/docs',
       },
     ]);
 
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9226/codex');
-  });
-
-  it('prefers the main Electron window over a routed auxiliary window on the same document', () => {
-    const target = cdpTest.selectCDPTarget([
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html?initialRoute=%2Favatar-overlay',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/overlay',
-      },
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/main',
-      },
-    ]);
-
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9238/main');
-  });
-
-  it('still connects to a routed window when the app opens no other surface', () => {
-    const target = cdpTest.selectCDPTarget([
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html?initialRoute=%2Favatar-overlay',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/overlay',
-      },
-    ]);
-
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9238/overlay');
-  });
-
-  it('keeps a routed window that outscores its plain sibling', () => {
-    const target = cdpTest.selectCDPTarget([
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html?initialRoute=%2Fc%2Fthread',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/thread',
-      },
-      {
-        type: 'page',
-        title: '',
-        url: 'app://-/index.html',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/blank',
-      },
-    ]);
-
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9238/thread');
-  });
-
-  it('ignores uninspectable targets when deciding which window is routed', () => {
-    const target = cdpTest.selectCDPTarget([
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html',
-      },
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html?initialRoute=%2Fc%2Fthread',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/main',
-      },
-      {
-        type: 'page',
-        title: 'Codex Helper',
-        url: 'about:blank',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/blank',
-      },
-    ]);
-
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9238/main');
+    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9226/docs');
   });
 
   it('leaves http tabs in document order when one carries a query string', () => {
@@ -172,45 +97,7 @@ describe('browser helpers', () => {
     expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9222/query');
   });
 
-  it('leaves unknown-scheme documents in document order when one carries a query', () => {
-    const target = cdpTest.selectCDPTarget([
-      {
-        type: 'page',
-        title: 'Example',
-        url: 'vscode-file://vscode-app/index.html?windowId=2',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9229/query',
-      },
-      {
-        type: 'page',
-        title: 'Example',
-        url: 'vscode-file://vscode-app/index.html',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9229/plain',
-      },
-    ]);
 
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9229/query');
-  });
-
-  it('honors OPENCLI_CDP_TARGET even when it names a routed auxiliary window', () => {
-    vi.stubEnv('OPENCLI_CDP_TARGET', 'avatar-overlay');
-
-    const target = cdpTest.selectCDPTarget([
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html?initialRoute=%2Favatar-overlay',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/overlay',
-      },
-      {
-        type: 'page',
-        title: 'Codex',
-        url: 'app://-/index.html',
-        webSocketDebuggerUrl: 'ws://127.0.0.1:9238/main',
-      },
-    ]);
-
-    expect(target?.webSocketDebuggerUrl).toBe('ws://127.0.0.1:9238/overlay');
-  });
 });
 
 describe('BrowserBridge state', () => {

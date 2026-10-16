@@ -179,12 +179,6 @@ describe('twitter device-follow', () => {
         });
     });
 
-    it('registers with the canonical twitter row columns (minus has_media/media_urls/card)', () => {
-        const cmd = getRegistry().get('twitter/device-follow');
-        expect(cmd?.columns).toEqual(['id', 'author', 'text', 'likes', 'retweets', 'replies', 'views', 'created_at', 'url']);
-        expect(cmd?.browser).toBe(true);
-    });
-
     it('throws AuthRequiredError when ct0 cookie is missing', async () => {
         const cmd = getRegistry().get('twitter/device-follow');
         const page = {

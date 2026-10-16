@@ -8,8 +8,9 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CliError, CommandExecutionError, EmptyResultError, TimeoutError } from '@jackwener/opencli/errors';
 import { unwrapEvaluateResult } from './shared.js';
+const CONTENT_WAIT_SECONDS = 20;
 /**
- * Wait for search results or login wall using MutationObserver (max 5s).
+ * Wait for search results or login wall using MutationObserver (max 20s).
  * Returns 'content' if note items appeared, a typed wall state when login or
  * risk controls appear, or 'timeout' if none appears within the deadline.
  *
@@ -32,16 +33,22 @@ const WAIT_FOR_CONTENT_JS = `
     };
     const found = detect();
     if (found) return resolve(found);
+    let timer;
+    const finish = (result) => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve(result);
+    };
     const observer = new MutationObserver(() => {
       const result = detect();
-      if (result) { observer.disconnect(); resolve(result); }
+      if (result) finish(result);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => { observer.disconnect(); resolve('timeout'); }, 5000);
+    // Document exists before body parsing and survives body replacement.
+    observer.observe(document, { childList: true, subtree: true });
+    timer = setTimeout(() => finish('timeout'), ${CONTENT_WAIT_SECONDS * 1000});
   })
 `;
 const DEFAULT_HARVEST_STEP = 900;
-const CONTENT_WAIT_SECONDS = 5;
 const FILTER_SETTLE_SECONDS = 8;
 
 const SEARCH_FILTERS = [
@@ -362,11 +369,17 @@ function buildApplySearchFiltersJs(requestedFilters) {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const text = (element) => (element?.textContent || '').replace(/\\s+/g, '').trim();
         const visible = (element) => {
-          if (!element) return false;
+          if (!element || element.closest('[aria-hidden="true"], [hidden], [inert]')) return false;
           const rect = element.getBoundingClientRect();
-          const style = getComputedStyle(element);
-          return rect.width > 0 && rect.height > 0 &&
-            style.display !== 'none' && style.visibility !== 'hidden';
+          if (rect.width <= 0 || rect.height <= 0) return false;
+          // A measurable box can still be a transparent instrumentation clone.
+          // Check ancestors too; retain the unique-match guard for real controls.
+          for (let node = element; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (style.display === 'none' || style.visibility === 'hidden' ||
+                (style.opacity !== '' && Number(style.opacity) < 0.01)) return false;
+          }
+          return true;
         };
         const visibleMatches = (root, selector) =>
           Array.from(root.querySelectorAll(selector)).filter(visible);
@@ -577,18 +590,18 @@ export function buildScrollUntilJs(targetCount, maxScrolls = 15) {
         let plateauRounds = 0;
         for (let i = 0; i < ${maxScrolls}; i++) {
           if (countItems() >= ${targetCount}) break;
-          const lastHeight = document.body.scrollHeight;
+          const lastHeight = document.body?.scrollHeight || document.documentElement?.scrollHeight || 0;
           window.scrollTo(0, lastHeight);
           await new Promise((resolve) => {
             let to;
             const ob = new MutationObserver(() => {
-              if (document.body.scrollHeight > lastHeight) {
+              if ((document.body?.scrollHeight || document.documentElement?.scrollHeight || 0) > lastHeight) {
                 clearTimeout(to);
                 ob.disconnect();
                 setTimeout(resolve, 200);
               }
             });
-            ob.observe(document.body, { childList: true, subtree: true });
+            ob.observe(document, { childList: true, subtree: true });
             to = setTimeout(() => { ob.disconnect(); resolve(null); }, 2500);
           });
           const newCount = countItems();
@@ -919,6 +932,7 @@ export const command = cli({
     },
 });
 export const __test__ = {
+    WAIT_FOR_CONTENT_JS,
     harvestOptionsForLimit,
     stripXhsAuthorDateSuffix,
 };

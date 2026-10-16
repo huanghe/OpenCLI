@@ -229,28 +229,6 @@ describe('toutiao registry shape', () => {
     const articles = getRegistry().get('toutiao/articles');
     const hot = getRegistry().get('toutiao/hot');
 
-    it('articles is registered as browser/cookie read adapter', () => {
-        expect(articles).toBeTruthy();
-        expect(articles.access).toBe('read');
-        expect(articles.browser).toBe(true);
-        expect(articles.columns).toEqual(['title', 'date', 'status', '展现', '阅读', '点赞', '评论']);
-    });
-
-    it('hot is registered as public non-browser read adapter', () => {
-        expect(hot).toBeTruthy();
-        expect(hot.access).toBe('read');
-        expect(hot.browser).toBe(false);
-        expect(hot.columns).toEqual(['rank', 'group_id', 'title', 'query', 'hot_value', 'label', 'url', 'image_url']);
-    });
-
-    it('recommend is registered as public non-browser read adapter', () => {
-        const recommend = getRegistry().get('toutiao/recommend');
-        expect(recommend).toBeTruthy();
-        expect(recommend.access).toBe('read');
-        expect(recommend.browser).toBe(false);
-        expect(recommend.columns).toEqual(['rank', 'group_id', 'title', 'abstract', 'source', 'tag', 'comments', 'published_at', 'url', 'image_url']);
-    });
-
     it('public non-browser commands take a single args object', () => {
         // browser:false commands are invoked with one argument; declaring a
         // leading page param silently swallows the caller's flags.

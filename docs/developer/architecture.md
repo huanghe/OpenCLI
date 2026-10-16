@@ -5,7 +5,7 @@ OpenCLI is a command surface that sits on top of four major subsystems:
 1. command discovery and registry
 2. execution and formatting
 3. browser / daemon / CDP connectivity
-4. adapter, plugin, and external CLI integration
+4. adapter and plugin integration
 
 ## Runtime Shape
 
@@ -21,8 +21,7 @@ opencli CLI
   │   ├─ built-in site adapters
   │   ├─ generated adapters
   │   └─ pipeline-backed adapters
-  ├─ plugin loading
-  └─ external CLI passthrough
+  └─ plugin loading
 ```
 
 ## Core Modules
@@ -69,8 +68,6 @@ opencli CLI
 
 - `clis/` — built-in site adapters
 - `src/plugin.ts` / `src/plugin-manifest.ts` / `src/plugin-scaffold.ts` — plugin install, metadata, scaffold
-- `src/external.ts` / `src/external-clis.yaml` — external CLI passthrough and installable tools
-- `src/electron-apps.ts` — desktop / Electron app support
 
 ## Command Sources
 
@@ -78,10 +75,9 @@ OpenCLI merges commands from multiple places into one registry:
 
 | Source | Location | Examples |
 |---|---|---|
-| Built-in adapters | `clis/` | `twitter`, `bilibili`, `reddit`, `chatgpt-app` |
+| Built-in adapters | `clis/` | `twitter`, `bilibili`, `reddit`, `chatgpt` |
 | Generated / local adapters | `~/.opencli/clis/` | user-authored adapters |
 | Plugins | `~/.opencli/plugins/` | community-contributed commands |
-| External CLIs | `src/external-clis.yaml` + local registrations | `gh`, `docker`, `vercel` |
 
 The user sees one unified command tree through `opencli list`.
 
@@ -106,13 +102,12 @@ This path is used for:
 
 ### Direct CDP mode
 
-Used when OpenCLI talks directly to a Chrome or Electron debugging endpoint through `OPENCLI_CDP_ENDPOINT`.
+Used when OpenCLI talks directly to a Chrome debugging endpoint through `OPENCLI_CDP_ENDPOINT`.
 
 Typical uses:
 
 - remote Chrome
 - headless Chrome
-- Electron desktop adapters
 
 ## Authentication / Access Strategies
 
@@ -128,7 +123,7 @@ OpenCLI currently uses these access strategies:
 The key distinction is operational:
 
 - `public` favors direct network access
-- `cookie`, `intercept`, `ui` depend on a live browser or desktop surface
+- `cookie`, `intercept`, `ui` depend on a live browser surface
 
 ## High-Risk Change Zones
 
@@ -141,7 +136,6 @@ Changes in these files usually affect broad command behavior:
 - `src/runtime.ts`
 - `src/daemon.ts`
 - `src/plugin.ts`
-- `src/external.ts`
 - `src/pipeline/**`
 
 These areas deserve targeted tests first, then broader validation when the change crosses module boundaries.
@@ -157,7 +151,6 @@ The simplest accurate model is:
    - network fetch
    - Browser Bridge
    - direct CDP
-   - external CLI passthrough
 5. It formats the result into a stable output surface.
 
 That is the architecture to preserve when refactoring.

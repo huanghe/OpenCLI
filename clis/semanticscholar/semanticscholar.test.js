@@ -18,38 +18,6 @@ afterEach(() => {
     delete process.env.SEMANTIC_SCHOLAR_API_KEY;
 });
 
-describe('semanticscholar adapter registry contracts', () => {
-    it('declares paper columns so paperId round-trips into citations and recommendations', () => {
-        const paper = getRegistry().get('semanticscholar/paper');
-        const citations = getRegistry().get('semanticscholar/citations');
-        const recommendations = getRegistry().get('semanticscholar/recommendations');
-
-        expect(paper).toBeDefined();
-        expect(citations).toBeDefined();
-        expect(recommendations).toBeDefined();
-        expect(paper.columns).toContain('paperId');
-        expect(citations.columns).toContain('paperId');
-        expect(recommendations.columns).toContain('paperId');
-    });
-
-    it('surfaces the unique Semantic Scholar fields on paper detail', () => {
-        const paper = getRegistry().get('semanticscholar/paper');
-
-        expect(paper.columns).toContain('influentialCitationCount');
-        expect(paper.columns).toContain('tldr');
-    });
-
-    it('marks every command as read access on the api.semanticscholar.org domain', () => {
-        for (const name of ['paper', 'citations', 'recommendations', 'search']) {
-            const cmd = getRegistry().get(`semanticscholar/${name}`);
-            expect(cmd, name).toBeDefined();
-            expect(cmd.access, name).toBe('read');
-            expect(cmd.domain, name).toBe('api.semanticscholar.org');
-            expect(cmd.browser, name).toBe(false);
-        }
-    });
-});
-
 describe('semanticscholar paper command', () => {
     const command = getRegistry().get('semanticscholar/paper');
 

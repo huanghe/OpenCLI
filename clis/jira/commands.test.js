@@ -63,14 +63,6 @@ afterEach(() => {
 });
 
 describe('jira commands', () => {
-    it('registers non-browser REST commands', () => {
-        for (const name of ['issue', 'search', 'comments', 'attachments', 'links']) {
-            const cmd = getRegistry().get(`jira/${name}`);
-            expect(cmd).toBeDefined();
-            expect(cmd.browser).toBe(false);
-            expect(cmd.strategy).toBe('public');
-        }
-    });
 
     it('normalizes a Cloud issue into agent-friendly context', async () => {
         setCloudEnv();

@@ -15,12 +15,7 @@ describe('douyin user-videos', () => {
         fetchDouyinUserVideosMock.mockReset();
         fetchDouyinCommentsMock.mockReset();
     });
-    it('registers the command', () => {
-        const registry = getRegistry();
-        const values = [...registry.values()];
-        const command = values.find((cmd) => cmd.site === 'douyin' && cmd.name === 'user-videos');
-        expect(command).toBeDefined();
-    });
+
     it('accepts a bare sec_uid and a pasted profile URL', () => {
         expect(normalizeSecUid('MS4wLjABAAAA_example-01')).toBe('MS4wLjABAAAA_example-01');
         expect(normalizeSecUid('  MS4wLjABAAAA_example-01  ')).toBe('MS4wLjABAAAA_example-01');

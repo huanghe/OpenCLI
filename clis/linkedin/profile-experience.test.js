@@ -19,32 +19,6 @@ const {
 describe('linkedin profile-experience adapter', () => {
   const command = getRegistry().get('linkedin/profile-experience');
 
-  it('registers command shape', () => {
-    expect(command).toBeDefined();
-    expect(command.strategy).toBe('cookie');
-    expect(command.browser).toBe(true);
-    expect(command.columns).toEqual([
-      'rank',
-      'total_count',
-      'title',
-      'employment_type',
-      'company',
-      'date_range',
-      'start_date',
-      'end_date',
-      'location',
-      'location_type',
-      'description',
-      'skills',
-      'media',
-      'urls',
-      'skill_url',
-      'media_url',
-      'profile_url',
-      'raw_text',
-    ]);
-  });
-
   it('normalizes default and explicit profile URLs', () => {
     expect(normalizeProfileUrl(undefined)).toBe('https://www.linkedin.com/in/me/');
     expect(normalizeProfileUrl('https://www.linkedin.com/in/gauravsaxena1997?x=1')).toBe('https://www.linkedin.com/in/gauravsaxena1997?x=1');

@@ -14,6 +14,19 @@ describe('output TTY detection', () => {
     logSpy.mockRestore();
   });
 
+  it('rejects unsupported render formats even for empty output', () => {
+    expect(() => render(null, { fmt: 'bogus' })).toThrow('--format must be one of');
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([['yml', 'yaml'], ['markdown', 'md']])('preserves the %s alias', (alias, canonical) => {
+    render([{ value: 'hello' }], { fmt: alias });
+    const aliasOutput = logSpy.mock.calls.map((call: unknown[]) => call[0]);
+    logSpy.mockClear();
+    render([{ value: 'hello' }], { fmt: canonical });
+    expect(logSpy.mock.calls.map((call: unknown[]) => call[0])).toEqual(aliasOutput);
+  });
+
   it('outputs YAML in non-TTY when format is default table', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
     // commanderAdapter always passes fmt:'table' as default — this must still trigger downgrade

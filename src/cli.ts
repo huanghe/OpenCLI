@@ -5,6 +5,7 @@
  * Dynamic adapter commands are registered via commanderAdapter.ts.
  */
 
+import { normalizeOutputFormat } from './output-format.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -16,11 +17,10 @@ import { serializeCommand, formatArgSummary } from './serialization.js';
 import { render as renderOutput } from './output.js';
 import { PKG_VERSION } from './version.js';
 import { printCompletionScript } from './completion.js';
-import { loadExternalClis, executeExternalCli, installExternalCli, registerExternalCli, isBinaryInstalled, formatExternalCliLabel } from './external.js';
 import { listOpenCliSkills, readOpenCliSkill } from './skills.js';
 import { registerAllCommands } from './commanderAdapter.js';
-import { classifyAdapter, formatRootAdapterHelpText, installCommanderNamespaceStructuredHelp, installStructuredHelp, leadingPositionalFromUsage, rootHelpData, type RootAdapterGroups } from './help.js';
-import { EXIT_CODES, getErrorMessage, BrowserConnectError, CliError } from './errors.js';
+import { formatRootAdapterHelpText, installCommanderNamespaceStructuredHelp, installStructuredHelp, leadingPositionalFromUsage, rootHelpData, type RootAdapterGroups } from './help.js';
+import { EXIT_CODES, getErrorMessage, BrowserConnectError, CliError, toEnvelope } from './errors.js';
 import { TargetError, type TargetErrorCode } from './browser/target-errors.js';
 import { resolveTargetJs, getTextResolvedJs, getValueResolvedJs, getAttributesResolvedJs, selectResolvedJs, isAutocompleteResolvedJs, type ResolveOptions, type TargetMatchLevel } from './browser/target-resolver.js';
 import { buildFindJs, buildSemanticFindJs, isFindError, type FindResult, type FindError, type SemanticFindOptions } from './browser/find.js';
@@ -278,144 +278,6 @@ export type SiteMemoryReport = {
   endpoints: { present: boolean; count: number; path: string };
   notes: { present: boolean; path: string };
 };
-
-export type SitemapAvailability = {
-  site: string;
-  available: true;
-  source: 'local' | 'global' | 'local+global';
-  hint: string;
-  paths: {
-    local?: string;
-    global?: string;
-  };
-};
-
-type SitemapHintState = {
-  seenSites: string[];
-  updatedAt: string;
-};
-
-type SitemapAvailabilityOptions = {
-  homeDir?: string;
-  packageRoot?: string;
-  registry?: Map<string, CliCommand>;
-  fileExists?: (candidate: string) => boolean;
-};
-
-const SITEMAP_HINT =
-  'Site sitemap available. For navigation context, use the opencli-browser-sitemap skill; treat browser state as truth if it disagrees.';
-
-function siteNameCandidatesFromUrl(url: string, registry: Map<string, CliCommand> = getRegistry()): string[] {
-  let host: string;
-  try {
-    host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
-  } catch {
-    return [];
-  }
-
-  const scored = new Map<string, number>();
-  for (const command of registry.values()) {
-    if (!command.domain) continue;
-    let domainHost = command.domain.toLowerCase().trim();
-    try {
-      domainHost = new URL(domainHost.includes('://') ? domainHost : `https://${domainHost}`).hostname.toLowerCase();
-    } catch {
-      domainHost = domainHost.split('/')[0] ?? domainHost;
-    }
-    domainHost = domainHost.replace(/^www\./, '');
-    if (!domainHost) continue;
-    if (host === domainHost || host.endsWith(`.${domainHost}`)) {
-      scored.set(command.site, Math.max(scored.get(command.site) ?? 0, domainHost.length));
-    }
-  }
-
-  const registrySites = [...scored.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([site]) => site);
-
-  const hostParts = host.split('.').filter(Boolean);
-  const fallback = hostParts.length >= 2 ? hostParts[hostParts.length - 2] : hostParts[0];
-  return [...new Set([...registrySites, ...(fallback ? [fallback] : [])])];
-}
-
-function firstExistingSitemapPath(paths: string[], fileExists: (candidate: string) => boolean): string | undefined {
-  return paths.find((candidate) => fileExists(candidate));
-}
-
-function sitemapPathsForSite(site: string, opts: Required<Pick<SitemapAvailabilityOptions, 'homeDir' | 'packageRoot' | 'fileExists'>>): { local?: string; global?: string } {
-  const safeSite = site.replace(/[^a-zA-Z0-9_-]+/g, '-');
-  if (!safeSite) return {};
-  const localBase = path.join(opts.homeDir, '.opencli', 'sites', safeSite);
-  return {
-    local: firstExistingSitemapPath([
-      path.join(localBase, 'sitemap'),
-      path.join(localBase, 'sitemap.md'),
-    ], opts.fileExists),
-    global: firstExistingSitemapPath([
-      path.join(opts.packageRoot, 'sitemaps', safeSite),
-      path.join(opts.packageRoot, 'sitemaps', `${safeSite}.md`),
-    ], opts.fileExists),
-  };
-}
-
-export function resolveSitemapAvailabilityForUrl(url: string, options: SitemapAvailabilityOptions = {}): SitemapAvailability | null {
-  const homeDir = options.homeDir ?? os.homedir();
-  const packageRoot = options.packageRoot ?? findPackageRoot(CLI_FILE);
-  const registry = options.registry ?? getRegistry();
-  const fileExists = options.fileExists ?? fs.existsSync;
-
-  for (const site of siteNameCandidatesFromUrl(url, registry)) {
-    const paths = sitemapPathsForSite(site, { homeDir, packageRoot, fileExists });
-    if (!paths.local && !paths.global) continue;
-    const source = paths.local && paths.global ? 'local+global' : paths.local ? 'local' : 'global';
-    return {
-      site,
-      available: true,
-      source,
-      hint: SITEMAP_HINT,
-      paths,
-    };
-  }
-  return null;
-}
-
-function getBrowserSitemapHintStatePath(scope: string): string {
-  const safeScope = scope.replace(/[^a-zA-Z0-9_-]+/g, '_');
-  return path.join(getBrowserCacheDir(), 'browser-sitemap-hints', `${safeScope}.json`);
-}
-
-function loadBrowserSitemapHintState(scope: string): SitemapHintState {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(getBrowserSitemapHintStatePath(scope), 'utf-8')) as SitemapHintState;
-    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.seenSites)) {
-      return {
-        seenSites: parsed.seenSites.filter((site) => typeof site === 'string'),
-        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString(),
-      };
-    }
-  } catch {
-    // First command in this browser session has no hint cache yet.
-  }
-  return { seenSites: [], updatedAt: new Date(0).toISOString() };
-}
-
-function markBrowserSitemapHintSeen(scope: string, site: string): void {
-  const state = loadBrowserSitemapHintState(scope);
-  if (!state.seenSites.includes(site)) state.seenSites.push(site);
-  const target = getBrowserSitemapHintStatePath(scope);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, JSON.stringify({ seenSites: state.seenSites, updatedAt: new Date().toISOString() }), 'utf-8');
-}
-
-function sitemapHintForBrowserUrl(url: string, scope: string, opts: { oncePerSession: boolean }): SitemapAvailability | null {
-  const sitemap = resolveSitemapAvailabilityForUrl(url);
-  if (!sitemap) return null;
-  if (!opts.oncePerSession) return sitemap;
-  const state = loadBrowserSitemapHintState(scope);
-  if (state.seenSites.includes(sitemap.site)) return null;
-  markBrowserSitemapHintSeen(scope, sitemap.site);
-  return sitemap;
-}
 
 export function checkSiteMemory(site: string): SiteMemoryReport {
   const siteDir = path.join(os.homedir(), '.opencli', 'sites', site);
@@ -790,8 +652,7 @@ function applyRootSubcommandSummaries(program: Command): void {
 
 export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command {
   const program = new Command();
-  // enablePositionalOptions: prevents parent from consuming flags meant for subcommands;
-  // prerequisite for passThroughOptions to forward --help/--version to external binaries
+  // Prevent the parent from consuming flags meant for subcommands.
   program
     .name('opencli')
     .description('Make any website your CLI. Zero setup. AI-powered.')
@@ -804,7 +665,7 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
   program
     .command('list')
     .description('List all available CLI commands')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', normalizeOutputFormat, 'table')
     .action((opts) => {
       const registry = getRegistry();
       const commands = [...new Set(registry.values())].sort((a, b) => fullName(a).localeCompare(fullName(b)));
@@ -835,16 +696,11 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
         return;
       }
 
-      // Table (default) — grouped by adapter kind (app vs site), then by site name.
-      // classifyAdapter() reads the `domain` field: DNS-style domains are sites;
-      // localhost/loopback endpoints and bare app names are apps.
-      const appsBySite = new Map<string, CliCommand[]>();
       const sitesBySite = new Map<string, CliCommand[]>();
       for (const cmd of commands) {
-        const target = classifyAdapter(cmd.domain) === 'app' ? appsBySite : sitesBySite;
-        const g = target.get(cmd.site) ?? [];
+        const g = sitesBySite.get(cmd.site) ?? [];
         g.push(cmd);
-        target.set(cmd.site, g);
+        sitesBySite.set(cmd.site, g);
       }
 
       const renderSiteGroup = (site: string, cmds: CliCommand[]): void => {
@@ -864,30 +720,13 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
       console.log('  opencli' + ' — available commands');
       console.log();
 
-      if (appsBySite.size > 0) {
-        console.log('  App adapters');
-        console.log();
-        for (const [site, cmds] of appsBySite) renderSiteGroup(site, cmds);
-      }
-
       if (sitesBySite.size > 0) {
         console.log('  Site adapters');
         console.log();
         for (const [site, cmds] of sitesBySite) renderSiteGroup(site, cmds);
       }
 
-      const externalClis = loadExternalClis();
-      if (externalClis.length > 0) {
-        console.log('  external CLIs');
-        for (const ext of externalClis) {
-          const isInstalled = isBinaryInstalled(ext.binary);
-          const tag = isInstalled ? '[installed]' : '[auto-install]';
-          console.log(`    ${formatExternalCliLabel(ext)} ${tag}${ext.description ? ` — ${ext.description}` : ''}`);
-        }
-        console.log();
-      }
-
-      console.log(`  ${commands.length} built-in commands across ${appsBySite.size} apps + ${sitesBySite.size} sites, ${externalClis.length} external CLIs`);
+      console.log(`  ${commands.length} built-in commands across ${sitesBySite.size} sites`);
       console.log();
     });
 
@@ -921,7 +760,7 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
   skillsCmd
     .command('list')
     .description('List bundled opencli-* skills')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', normalizeOutputFormat, 'table')
     .action((opts) => {
       const rows = listOpenCliSkills();
       renderOutput(rows, {
@@ -964,7 +803,7 @@ export function createProgram(BUILTIN_CLIS: string, USER_CLIS: string): Command 
     .description('Scan adapters for agent-native convention violations')
     .argument('[target]', 'site or site/name')
     .option('--site <site>', 'Limit audit to one site')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json, yaml', normalizeOutputFormat, 'table')
     .option('--strict', 'Exit non-zero when violations are found', false)
     .action(async (target, opts) => {
       const { runConventionAudit, renderConventionAuditText } = await import('./convention-audit.js');
@@ -1258,11 +1097,9 @@ Examples:
         try { await page.evaluate(NETWORK_INTERCEPTOR_JS); } catch { /* non-fatal */ }
       }
       const currentUrl = await page.getCurrentUrl?.() ?? url;
-      const sitemap = sitemapHintForBrowserUrl(currentUrl, getPageScope(page), { oncePerSession: true });
       console.log(JSON.stringify({
         url: currentUrl,
         ...(page.getActivePage?.() ? { page: page.getActivePage?.() } : {}),
-        ...(sitemap ? { sitemap } : {}),
       }, null, 2));
     }));
 
@@ -1486,11 +1323,7 @@ Examples:
         title: probe.title,
       };
       const report = analyzeSite(signals, getRegistry());
-      const sitemap = resolveSitemapAvailabilityForUrl(probe.finalUrl || url);
-      console.log(JSON.stringify({
-        ...report,
-        ...(sitemap ? { sitemap } : {}),
-      }, null, 2));
+      console.log(JSON.stringify(report, null, 2));
     }));
 
   // ── Find (structured CSS query, agent-native) ──
@@ -3217,7 +3050,7 @@ cli({
   pluginCmd
     .command('list')
     .description('List installed plugins')
-    .option('-f, --format <fmt>', 'Output format: table, json', 'table')
+    .option('-f, --format <fmt>', 'Output format: table, json', normalizeOutputFormat, 'table')
     .action(async (opts) => {
       const { listPlugins } = await import('./plugin.js');
       const plugins = listPlugins();
@@ -3522,130 +3355,13 @@ cli({
     .description('Restart the daemon')
     .action(async () => { await daemonRestart(); });
 
-  // ── External CLIs ─────────────────────────────────────────────────────────
-
-  const externalClis = loadExternalClis();
-
-  const externalCmd = program
-    .command('external')
-    .description('Manage external CLI passthrough commands');
-
-  externalCmd
-    .command('install')
-    .description('Install an external CLI')
-    .argument('<name>', 'Name of the external CLI')
-    .action((name: string) => {
-      const ext = externalClis.find(e => e.name === name);
-      if (!ext) {
-        console.error(`External CLI '${name}' not found in registry.`);
-        process.exitCode = EXIT_CODES.USAGE_ERROR;
-        return;
-      }
-      installExternalCli(ext);
-    });
-
-  externalCmd
-    .command('register')
-    .description('Register an external CLI')
-    .argument('<name>', 'Name of the CLI')
-    .option('--binary <bin>', 'Binary name if different from name')
-    .option('--install <cmd>', 'Auto-install command')
-    .option('--desc <text>', 'Description')
-    .action((name, opts) => {
-      registerExternalCli(name, { binary: opts.binary, install: opts.install, description: opts.desc });
-    });
-
-  externalCmd
-    .command('list')
-    .description('List registered external CLIs')
-    .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', 'table')
-    .action((opts) => {
-      const rows = loadExternalClis().map((ext) => ({
-        name: ext.name,
-        package: ext.package ?? '',
-        binary: ext.binary,
-        installed: isBinaryInstalled(ext.binary),
-        description: ext.description ?? '',
-        homepage: ext.homepage ?? '',
-        tags: ext.tags?.join(', ') ?? '',
-      }));
-      renderOutput(rows, {
-        fmt: opts.format,
-        columns: ['name', 'package', 'binary', 'installed', 'description', 'homepage', 'tags'],
-        title: 'opencli/external/list',
-        source: 'opencli external list',
-      });
-    });
-
-  function passthroughExternal(name: string, parsedArgs?: string[]) {
-    const args = parsedArgs ?? (() => {
-      const idx = process.argv.indexOf(name);
-      return process.argv.slice(idx + 1);
-    })();
-    try {
-      executeExternalCli(name, args, externalClis);
-    } catch (err) {
-      console.error(`Error: ${getErrorMessage(err)}`);
-      process.exitCode = EXIT_CODES.GENERIC_ERROR;
-    }
-  }
-
-  for (const ext of externalClis) {
-    if (program.commands.some(c => c.name() === ext.name)) continue;
-    program
-      .command(ext.name)
-      .description(`(External) ${ext.description || ext.name}`)
-      .argument('[args...]')
-      .allowUnknownOption()
-      .passThroughOptions()
-      .helpOption(false)
-      .action((args: string[]) => passthroughExternal(ext.name, args));
-  }
-
-  // ── Antigravity serve (long-running, special case) ────────────────────────
-
-  const antigravityCmd = program.command('antigravity').description('antigravity commands');
-  antigravityCmd
-    .command('serve')
-    .description('Start Anthropic-compatible API proxy for Antigravity')
-    .option('--port <port>', 'Server port (default: 8082)', '8082')
-    .option('--timeout <seconds>', 'Maximum time to wait for a reply (default: 120s)')
-    .action(async (opts) => {
-      // @ts-expect-error JS adapter — no type declarations
-      const { startServe } = await import('../../clis/antigravity/serve.js');
-      await startServe({
-        port: parseInt(opts.port, 10),
-        timeout: opts.timeout ? parsePositiveIntOption(opts.timeout, '--timeout', 120) : undefined,
-      });
-    });
-
   // ── Dynamic adapter commands ──────────────────────────────────────────────
 
-  const siteGroups = new Map<string, Command>();
-  siteGroups.set('antigravity', antigravityCmd);
-  const siteNames = registerAllCommands(program, siteGroups);
+  const siteNames = registerAllCommands(program);
   applyRootSubcommandSummaries(program);
 
-  // ── Help-text grouping: External CLIs / App adapters / Site adapters ──
-  // Classification derives from each adapter's `domain` field — see classifyAdapter.
-  // External CLIs are taken from the externalClis registry (passthrough binaries).
-  const externalNames = externalClis.map(ext => ext.name);
-  const externalHelpEntries = externalClis.map(ext => ({
-    name: ext.name,
-    label: formatExternalCliLabel(ext),
-  }));
-  const siteDomains = new Map<string, string | undefined>();
-  for (const [, cmd] of getRegistry()) {
-    if (!siteDomains.has(cmd.site)) siteDomains.set(cmd.site, cmd.domain);
-  }
-  const apps: string[] = [];
-  const sites: string[] = [];
-  for (const site of siteNames) {
-    if (classifyAdapter(siteDomains.get(site)) === 'app') apps.push(site);
-    else sites.push(site);
-  }
-  const adapterGroups: RootAdapterGroups = { external: externalHelpEntries, apps, sites };
-  const adapterNameSet = new Set<string>([...externalNames, ...siteNames]);
+  const adapterGroups: RootAdapterGroups = { sites: [...siteNames] };
+  const adapterNameSet = new Set<string>(siteNames);
   installCommanderNamespaceStructuredHelp(browser, { globalCommand: program, description: originalBrowserDescription });
   installCommanderNamespaceStructuredHelp(authCmd, { globalCommand: program, description: 'Inspect website login status' });
   installCommanderNamespaceStructuredHelp(daemonCmd, { globalCommand: program, description: originalDaemonDescription });
@@ -3680,15 +3396,9 @@ cli({
   installStructuredHelp(program, () => rootHelpData(program, adapterGroups), () => formatRootAdapterHelpText(adapterGroups));
 
   // ── Unknown command fallback ──────────────────────────────────────────────
-  // Security: do NOT auto-discover and register arbitrary system binaries.
-  // Only explicitly registered external CLIs are allowed.
-
   program.on('command:*', (operands: string[]) => {
     const binary = operands[0];
     console.error(`error: unknown command '${binary}'`);
-    if (isBinaryInstalled(binary)) {
-      console.error(`  Tip: '${binary}' exists on your PATH. Use 'opencli external register ${binary}' to add it as an external CLI.`);
-    }
     program.outputHelp();
     process.exitCode = EXIT_CODES.USAGE_ERROR;
   });
@@ -3697,7 +3407,13 @@ cli({
 }
 
 export function runCli(BUILTIN_CLIS: string, USER_CLIS: string): void {
-  createProgram(BUILTIN_CLIS, USER_CLIS).parse();
+  try {
+    createProgram(BUILTIN_CLIS, USER_CLIS).parse();
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    console.error(JSON.stringify(toEnvelope(error), null, 2));
+    process.exitCode = error.exitCode;
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

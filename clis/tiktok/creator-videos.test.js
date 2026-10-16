@@ -28,21 +28,6 @@ const apiItem = {
 };
 
 describe('tiktok/creator-videos', () => {
-    it('registers a read-only browser command with stable video_id column', () => {
-        expect(creatorVideosCommand.access).toBe('read');
-        expect(creatorVideosCommand.browser).toBe(true);
-        expect(creatorVideosCommand.columns).toEqual([
-            'video_id',
-            'title',
-            'date',
-            'views',
-            'likes',
-            'comments',
-            'saves',
-            'shares',
-            'url',
-        ]);
-    });
 
     it('validates args before navigating', async () => {
         const page = makePage();

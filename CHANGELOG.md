@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- Electron desktop automation: app registry, automatic launch/restart, desktop adapters, and the public launcher export. Direct CDP connections to Chrome remain supported.
+- Site sitemap knowledge, sitemap skills/hints, and external CLI Hub passthrough (including registration and installation).
+
 ## [1.8.4](https://github.com/jackwener/opencli/compare/v1.8.3...v1.8.4) (2026-06-15)
 
 Patch release surfacing the bundled skills directory, expanding the auth subsystem across 50+ adapters, refactoring the extension's tab-group model, and adding ten or so new adapter capabilities.

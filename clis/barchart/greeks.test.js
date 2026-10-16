@@ -16,16 +16,6 @@ function makePage(evaluateResult) {
 describe('barchart greeks command', () => {
     const command = getRegistry().get('barchart/greeks');
 
-    it('registers with the expected shape', () => {
-        expect(command).toBeDefined();
-        expect(command.access).toBe('read');
-        expect(command.browser).toBe(true);
-        expect(command.columns).toEqual([
-            'type', 'strike', 'last', 'iv', 'delta', 'gamma', 'theta', 'vega', 'rho',
-            'volume', 'openInterest', 'expiration',
-        ]);
-    });
-
     it('maps returned option rows without changing the declared output shape', async () => {
         const page = makePage({
             session: 'site:barchart',

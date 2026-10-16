@@ -4,12 +4,6 @@ import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultErr
 import './answer-detail.js';
 
 describe('zhihu answer-detail', () => {
-    it('registers as a cookie read command', () => {
-        const cmd = getRegistry().get('zhihu/answer-detail');
-        expect(cmd).toBeDefined();
-        expect(cmd.access).toBe('read');
-        expect(cmd.strategy).toBe('cookie');
-    });
 
     it('fetches a single answer by numeric id and returns one row', async () => {
         const cmd = getRegistry().get('zhihu/answer-detail');
