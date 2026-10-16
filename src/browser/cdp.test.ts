@@ -231,3 +231,19 @@ describe('CDPBridge init script', () => {
     await bridge.close();
   });
 });
+
+describe('CDPPage.evaluateOnce', () => {
+  it('does not resend Runtime.evaluate after a target navigation', async () => {
+    vi.stubEnv('OPENCLI_CDP_ENDPOINT', 'ws://127.0.0.1:9222/devtools/page/1');
+    const bridge = new CDPBridge();
+    const send = vi.spyOn(bridge, 'send').mockResolvedValue({});
+    const page = await bridge.connect();
+    send.mockClear();
+    const error = new Error('Inspected target navigated or closed');
+    send.mockRejectedValue(error);
+    await expect(page.evaluateOnce!('publishComment()')).rejects.toBe(error);
+    expect(send).toHaveBeenCalledTimes(1);
+    await bridge.close();
+    vi.unstubAllEnvs();
+  });
+});

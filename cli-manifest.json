@@ -2902,11 +2902,22 @@
     "columns": [
       "rank",
       "time",
+      "pub_ts",
       "author",
+      "mid",
       "title",
       "type",
+      "duration",
+      "duration_sec",
+      "plays",
+      "danmaku",
       "likes",
-      "url"
+      "url",
+      "bvid",
+      "cover",
+      "face",
+      "desc",
+      "only_fans"
     ],
     "type": "js",
     "modulePath": "bilibili/feed.js",
@@ -3195,8 +3206,19 @@
       "rank",
       "title",
       "author",
+      "mid",
       "score",
-      "url"
+      "plays",
+      "likes",
+      "danmaku",
+      "favorites",
+      "duration",
+      "duration_sec",
+      "pubdate_ts",
+      "url",
+      "cover",
+      "face",
+      "desc"
     ],
     "type": "js",
     "modulePath": "bilibili/search.js",
@@ -3342,8 +3364,18 @@
       "title",
       "plays",
       "likes",
+      "likes_known",
+      "comments",
+      "danmaku",
       "date",
-      "url"
+      "created_ts",
+      "duration",
+      "duration_sec",
+      "url",
+      "bvid",
+      "cover",
+      "desc",
+      "is_pay"
     ],
     "type": "js",
     "modulePath": "bilibili/user-videos.js",
@@ -28330,6 +28362,118 @@
     "sourceFile": "producthunt/today.js"
   },
   {
+    "site": "proton",
+    "name": "inbox",
+    "description": "List sender-filtered inbox metadata via API; optionally read the newest message for a code",
+    "access": "read",
+    "example": "opencli proton inbox --from ifood --read-code -f json",
+    "domain": "mail.proton.me",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "from",
+        "type": "str",
+        "required": false,
+        "help": "Case-insensitive substring of the sender name or address"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Maximum matching messages (1..100)"
+      },
+      {
+        "name": "since",
+        "type": "int",
+        "default": 0,
+        "required": false,
+        "help": "Only messages at or after this Unix timestamp (seconds)"
+      },
+      {
+        "name": "read-code",
+        "type": "bool",
+        "default": false,
+        "required": false,
+        "help": "Open the newest match and extract a code; may mark that message read"
+      },
+      {
+        "name": "timeout",
+        "type": "int",
+        "default": 30,
+        "required": false,
+        "help": "Seconds to wait for selected message decryption (1..900)"
+      }
+    ],
+    "columns": [
+      "id",
+      "sender",
+      "subject",
+      "time",
+      "code"
+    ],
+    "type": "js",
+    "modulePath": "proton/inbox.js",
+    "sourceFile": "proton/inbox.js",
+    "navigateBefore": false,
+    "siteSession": "persistent"
+  },
+  {
+    "site": "proton",
+    "name": "login",
+    "description": "Open proton login and wait until the browser session is authenticated",
+    "access": "write",
+    "domain": "mail.proton.me",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "timeout",
+        "type": "int",
+        "default": 300,
+        "required": false,
+        "help": "Maximum seconds to wait for the user to finish login"
+      }
+    ],
+    "columns": [
+      "status",
+      "logged_in",
+      "site",
+      "id",
+      "username",
+      "email"
+    ],
+    "type": "js",
+    "modulePath": "proton/login.js",
+    "sourceFile": "proton/login.js",
+    "navigateBefore": false,
+    "siteSession": "persistent",
+    "defaultWindowMode": "foreground"
+  },
+  {
+    "site": "proton",
+    "name": "whoami",
+    "description": "Show the Proton account verified by the authenticated Mail API",
+    "access": "read",
+    "domain": "mail.proton.me",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [],
+    "columns": [
+      "logged_in",
+      "site",
+      "id",
+      "username",
+      "email"
+    ],
+    "type": "js",
+    "modulePath": "proton/whoami.js",
+    "sourceFile": "proton/whoami.js",
+    "navigateBefore": false,
+    "siteSession": "persistent"
+  },
+  {
     "site": "pubmed",
     "name": "article",
     "aliases": [
@@ -36276,7 +36420,8 @@
       "url",
       "has_media",
       "media_urls",
-      "media_posters"
+      "media_posters",
+      "media_durations"
     ],
     "type": "js",
     "modulePath": "twitter/bookmark-folder.js",
@@ -36363,7 +36508,8 @@
       "url",
       "has_media",
       "media_urls",
-      "media_posters"
+      "media_posters",
+      "media_durations"
     ],
     "type": "js",
     "modulePath": "twitter/bookmarks.js",
@@ -36782,7 +36928,8 @@
       "url",
       "has_media",
       "media_urls",
-      "media_posters"
+      "media_posters",
+      "media_durations"
     ],
     "type": "js",
     "modulePath": "twitter/likes.js",
@@ -37081,16 +37228,19 @@
     "columns": [
       "id",
       "author",
+      "author_avatar",
       "bio",
       "text",
       "likes",
       "retweets",
       "replies",
+      "views",
       "created_at",
       "url",
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet"
     ],
@@ -37541,6 +37691,7 @@
     "columns": [
       "id",
       "author",
+      "author_avatar",
       "bio",
       "text",
       "created_at",
@@ -37550,6 +37701,7 @@
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet",
       "author_verified"
@@ -37593,14 +37745,17 @@
     "columns": [
       "id",
       "author",
+      "author_avatar",
       "bio",
       "text",
       "likes",
       "retweets",
+      "views",
       "url",
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet",
       "author_verified"
@@ -37659,6 +37814,7 @@
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "card",
       "quoted_tweet",
       "author_verified"
@@ -37747,6 +37903,7 @@
       "has_media",
       "media_urls",
       "media_posters",
+      "media_durations",
       "quoted_tweet"
     ],
     "type": "js",
@@ -43583,6 +43740,48 @@
     "modulePath": "youtube/channel.js",
     "sourceFile": "youtube/channel.js",
     "navigateBefore": "https://www.youtube.com"
+  },
+  {
+    "site": "youtube",
+    "name": "comment",
+    "description": "Post a top-level comment on a YouTube video (requires --execute)",
+    "access": "write",
+    "domain": "www.youtube.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "url",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "YouTube video URL or video ID"
+      },
+      {
+        "name": "text",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "Comment text to post"
+      },
+      {
+        "name": "execute",
+        "type": "boolean",
+        "required": false,
+        "help": "Actually post the comment. Without it the command refuses to write."
+      }
+    ],
+    "columns": [
+      "status",
+      "comment_id",
+      "url",
+      "message",
+      "verified"
+    ],
+    "type": "js",
+    "modulePath": "youtube/comment.js",
+    "sourceFile": "youtube/comment.js",
+    "navigateBefore": false
   },
   {
     "site": "youtube",
