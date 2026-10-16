@@ -438,3 +438,27 @@ describe('youtube search', () => {
             .rejects.toBeInstanceOf(EmptyResultError);
     });
 });
+
+it('does not substitute a video cover for the channel avatar', async () => {
+    const item = video('first');
+    item.videoRenderer.thumbnail = { thumbnails: [{ url: 'https://i.ytimg.com/vi/first/hqdefault.jpg' }] };
+    const page = makePage({ initialData: payload([item]) });
+    const [row] = await getRegistry().get('youtube/search').func(page, { query: 'test', limit: 1 });
+    expect(row.channel_avatar).toBe('');
+});
+
+it('does not substitute a reel cover for the channel avatar', async () => {
+    const item = { reelItemRenderer: { videoId: 'short-id', headline: text('Short'), thumbnail: { thumbnails: [{ url: 'https://i.ytimg.com/vi/short-id/hqdefault.jpg' }] } } };
+    const page = makePage({ initialData: payload([item]) });
+    const [row] = await getRegistry().get('youtube/search').func(page, { query: 'test', type: 'shorts', limit: 1 });
+    expect(row.channel_avatar).toBe('');
+    expect(row.video_id).toBe('short-id');
+});
+
+it('uses the channel renderer thumbnail as its own avatar', async () => {
+    const item = channel();
+    item.channelRenderer.thumbnail = { thumbnails: [{ url: 'https://yt3.ggpht.com/channel=s48' }, { url: 'https://yt3.ggpht.com/channel=s88' }] };
+    const page = makePage({ initialData: payload([item]) });
+    const [row] = await getRegistry().get('youtube/search').func(page, { query: 'test', type: 'channel', limit: 1 });
+    expect(row.channel_avatar).toBe('https://yt3.ggpht.com/channel=s88');
+});

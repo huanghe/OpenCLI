@@ -118,10 +118,10 @@ cli({
         }
 
         // Channel avatar: thumbnails/sources are smallest-first, so take the last one.
-        function readAvatar(node) {
+        function readAvatar(node, isChannel = false) {
           const thumbnails = node?.channelThumbnailSupportedRenderers
             ?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails
-            || node?.thumbnail?.thumbnails
+            || (isChannel ? node?.thumbnail?.thumbnails : undefined)
             || [];
           return thumbnails[thumbnails.length - 1]?.url || '';
         }
@@ -182,7 +182,7 @@ cli({
           return [channel?.channelId || channel?.navigationEndpoint?.browseEndpoint?.browseId || '', {
             title: readText(channel?.title),
             channel: handleCandidate.startsWith('@') ? handleCandidate : '',
-            channel_avatar: readAvatar(channel),
+            channel_avatar: readAvatar(channel, true),
             video_id: '',
             views: readText(channel?.videoCountText) || (!handleCandidate.startsWith('@') ? handleCandidate : ''),
             duration: 'CHANNEL',
