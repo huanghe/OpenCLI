@@ -43698,7 +43698,7 @@
     "type": "js",
     "modulePath": "youtube/comment.js",
     "sourceFile": "youtube/comment.js",
-    "navigateBefore": "https://www.youtube.com"
+    "navigateBefore": false
   },
   {
     "site": "youtube",
