@@ -1,4 +1,6 @@
-import { AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
+import { fetchRankedRedditSearch } from './web-search.js';
+import { log } from '@jackwener/opencli/logger';
+import { ArgumentError, AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { BROWSER_JSON_SNIFF_FN, throwIfLoginWall } from '@jackwener/opencli/utils';
 import { cli, Strategy } from '@jackwener/opencli/registry';
 
@@ -124,18 +126,15 @@ cli({
     columns: ['id', 'title', 'subreddit', 'author', 'score', 'comments', 'url', 'created_utc', 'selftext', 'post_hint', 'url_overridden_by_dest', 'preview_image_url', 'gallery_urls'],
     func: async (page, kwargs) => {
         if (!page) throw new CommandExecutionError('Browser session required for Reddit search');
+        const limit = Number(kwargs.limit ?? 15);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new ArgumentError('Reddit search limit must be an integer from 1 to 1000.');
         await page.goto('https://www.reddit.com');
         const requestPath = buildRedditSearchPath(kwargs);
         const rawResult = await page.evaluate(`(async () => {
       ${BROWSER_JSON_SNIFF_FN}
       try {
-        const payload = await fetchJsonOrLoginWall(${JSON.stringify(requestPath)}, { credentials: 'include' });
-        if (payload?.__loginWall) return { kind: 'login-wall', sentinel: payload };
-        if (payload?.error) return { kind: 'http', status: payload.error };
-        if (!Array.isArray(payload?.data?.children)) {
-          return { kind: 'malformed', detail: 'payload is missing data.children' };
-        }
-        return { kind: 'ok', rows: payload.data.children };
+        const fetchRankedRedditSearch = ${fetchRankedRedditSearch.toString()};
+        return await fetchRankedRedditSearch(${JSON.stringify(String(kwargs.query ?? ''))}, ${JSON.stringify(String(kwargs.subreddit ?? '').trim())}, ${JSON.stringify(String(kwargs.sort ?? 'relevance'))}, ${JSON.stringify(String(kwargs.time ?? 'all'))}, ${limit}, ${JSON.stringify(requestPath)});
       } catch (error) {
         return { kind: 'exception', detail: String(error?.message || error) };
       }
@@ -144,7 +143,11 @@ cli({
         if (result?.kind === 'login-wall') {
             throwIfLoginWall(result.sentinel, { url: requestPath });
         }
-        return mapSearchResult(result).slice(0, Number(kwargs.limit ?? 15));
+        const rows = mapSearchResult(result).slice(0, limit);
+        if (result.fallback) log.warn('Reddit web-search markup was unavailable; using legacy search ranking.');
+        if (result.missing) log.warn(`Reddit did not return details for ${result.missing} ranked posts; preserving the remaining web-search order.`);
+        if (result.capped) log.warn('Reddit search reached its 10-page pagination limit.');
+        return rows;
     },
 });
 

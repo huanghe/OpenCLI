@@ -129,7 +129,7 @@ cli({
         { name: 'limit', type: 'int', default: 50 },
         { name: 'top-by-engagement', type: 'int', default: 0, help: 'When set to N>0, re-rank the list timeline by weighted engagement (likes×1 + retweets×3 + replies×2 + bookmarks×5 + log10(views+1)×0.5) and return the top N. Default 0 keeps the list\'s native (recency) ordering.' },
     ],
-    columns: ['id', 'author', 'author_avatar', 'bio', 'text', 'likes', 'retweets', 'replies', 'views', 'created_at', 'url', 'card', 'quoted_tweet', 'has_media', 'media_urls', 'media_posters', 'media_durations'],
+    columns: ['id', 'author', 'author_avatar', 'bio', 'text', 'likes', 'retweets', 'replies', 'views', 'created_at', 'url', 'has_media', 'media_urls', 'media_posters', 'media_durations', 'card', 'quoted_tweet'],
     func: async (page, kwargs) => {
         const listId = String(kwargs.listId || '').trim();
         if (!listId || !/^\d+$/.test(listId)) {

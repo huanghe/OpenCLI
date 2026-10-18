@@ -1,3 +1,4 @@
+import { readInstagramJsonJs, runInstagramRead } from './_shared/read-response.js';
 import { cli } from '@jackwener/opencli/registry';
 cli({
     site: 'instagram',
@@ -9,23 +10,19 @@ cli({
         { name: 'username', required: true, positional: true, help: 'Instagram username' },
     ],
     columns: ['username', 'name', 'followers', 'following', 'posts', 'verified', 'bio', 'avatar_url'],
-    pipeline: [
-        { navigate: 'https://www.instagram.com' },
-        { evaluate: `(async () => {
-  const username = \${{ args.username | json }};
+    browser: true,
+    navigateBefore: false,
+    func: async (page, kwargs) => {
+        await page.goto(`https://www.instagram.com/${encodeURIComponent(String(kwargs.username))}/`);
+        return runInstagramRead(page, `(async () => {
+  const username = ${JSON.stringify(kwargs.username)};
   const opts = { credentials: 'include', headers: { 'X-IG-App-ID': '936619743392459' } };
   function normalizeInstagramUserId(value, label) {
     const id = typeof value === 'number' ? String(value) : (typeof value === 'string' ? value.trim() : '');
     if (!/^\\d+$/.test(id)) throw new Error(label);
     return id;
   }
-  async function readInstagramJson(response, label) {
-    try {
-      return await response.json();
-    } catch {
-      throw new Error(label + ' returned invalid JSON');
-    }
-  }
+  ${readInstagramJsonJs()}
   function throwInstagramHttpError(response, label) {
     if (response.status === 404) throw new Error('User not found: ' + username);
     if (response.status === 401 || response.status === 403) {
@@ -86,6 +83,6 @@ cli({
     posts: (user) => user.media_count ?? 0,
   })];
 })()
-` },
-    ],
+`);
+    },
 });

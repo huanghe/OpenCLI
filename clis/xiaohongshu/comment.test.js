@@ -13,13 +13,14 @@ const TEXT = '写得很好，学到了';
  * command makes is always the preflight extract.
  */
 function makePage(evaluateResults = []) {
-    const evaluate = vi.fn();
-    for (const r of evaluateResults) evaluate.mockResolvedValueOnce(r);
-    evaluate.mockResolvedValue(undefined);
+    const results = [...evaluateResults];
+    const evaluate = vi.fn(async () => results.shift());
+    const evaluateOnce = vi.fn(async () => results.shift());
     return {
         goto: vi.fn().mockResolvedValue(undefined),
         wait: vi.fn().mockResolvedValue(undefined),
         evaluate,
+        evaluateOnce,
     };
 }
 
@@ -41,7 +42,8 @@ describe('xiaohongshu comment', () => {
         // Exactly one navigation and one write — this command never retries.
         expect(page.goto).toHaveBeenCalledTimes(1);
         expect(page.goto).toHaveBeenCalledWith(NOTE_URL);
-        expect(page.evaluate).toHaveBeenCalledTimes(2);
+        expect(page.evaluate).toHaveBeenCalledTimes(1);
+        expect(page.evaluateOnce).toHaveBeenCalledTimes(1);
     });
 
     it('refuses without --execute, before any navigation or request', async () => {
@@ -50,6 +52,21 @@ describe('xiaohongshu comment', () => {
             .rejects.toThrowError(/Refusing to post: pass --execute/);
         expect(page.goto).not.toHaveBeenCalled();
         expect(page.evaluate).not.toHaveBeenCalled();
+    });
+
+    it('refuses older runtimes before navigating', async () => {
+        const page = makePage();
+        delete page.evaluateOnce;
+        await expect(getCommand().func(page, { note: NOTE_URL, text: TEXT, execute: true })).rejects.toThrow(/evaluateOnce/);
+        expect(page.goto).not.toHaveBeenCalled();
+    });
+
+    it('never retries a write after an unknown navigation outcome', async () => {
+        const page = makePage([okPreflight]);
+        page.evaluateOnce.mockRejectedValueOnce(Object.assign(new Error('target navigated'), { code: 'target_navigated' }));
+        await expect(getCommand().func(page, { note: NOTE_URL, text: TEXT, execute: true })).rejects.toThrow(/target navigated/);
+        expect(page.evaluateOnce).toHaveBeenCalledTimes(1);
+        expect(page.goto).toHaveBeenCalledTimes(1);
     });
 
     it('rejects empty text and malformed targets before navigation', async () => {

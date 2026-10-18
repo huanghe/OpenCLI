@@ -61,28 +61,12 @@ cli({
             // Open the more actions menu
             moreBtn.click();
 
-            // Poll for the popup instead of sampling once after a flat 1s: on
-            // a cold call X was measured painting the menu items ~1s after the
-            // trigger click, and a hidden or minimized tab clamps setTimeout to
-            // ~1s on top of that, which put the old sleep right on the coin flip.
-            const menuItemCount = () => document.querySelectorAll('[role="menuitem"]').length;
-            const menuItemsBefore = menuItemCount();
-            for (let i = 0; i < 20; i++) {
+            // Poll the requested action, not the first batch of menu rows.
+            const findBlockItem = () => Array.from(document.querySelectorAll('[role="menuitem"]')).find(isBlockMenuItem);
+            let blockItem = findBlockItem();
+            for (let i = 0; i < 20 && !blockItem; i++) {
                 await new Promise(r => setTimeout(r, 250));
-                if (menuItemCount() <= menuItemsBefore) continue;
-                // One more tick so a half-painted popup is never read as final.
-                await new Promise(r => setTimeout(r, 250));
-                break;
-            }
-
-            // Find the Block menu item
-            const menuItems = document.querySelectorAll('[role="menuitem"]');
-            let blockItem = null;
-            for (const item of menuItems) {
-                if (isBlockMenuItem(item)) {
-                    blockItem = item;
-                    break;
-                }
+                blockItem = findBlockItem();
             }
 
             if (!blockItem) {

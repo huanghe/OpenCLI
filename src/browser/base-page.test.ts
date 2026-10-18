@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CliError } from '../errors.js';
-import { BasePage } from './base-page.js';
+import { BasePage, NATIVE_INPUT_VISIBILITY_JS, NativeInputVisibilityError } from './base-page.js';
 import { TargetError } from './target-errors.js';
 import type { BrowserEvaluateFunction, ScreenshotOptions } from '../types.js';
 
@@ -23,6 +23,7 @@ class TestPage extends BasePage {
 }
 
 class ActionPage extends BasePage {
+  visibility: unknown = 'visible';
   results: unknown[] = [];
   withArgsResults: unknown[] = [];
   scripts: string[] = [];
@@ -39,6 +40,7 @@ class ActionPage extends BasePage {
   async evaluate<T = unknown>(js: string): Promise<T>;
   async evaluate<Args extends unknown[], T>(fn: BrowserEvaluateFunction<Args, T>, ...args: Args): Promise<Awaited<T>>;
   async evaluate(input: string | BrowserEvaluateFunction<unknown[], unknown>): Promise<unknown> {
+    if (input === NATIVE_INPUT_VISIBILITY_JS) return this.visibility;
     this.scripts.push(typeof input === 'string' ? input : input.toString());
     return this.results.shift() ?? null;
   }
@@ -949,5 +951,44 @@ describe('BasePage.sleep', () => {
 
     expect(evalSpy).not.toHaveBeenCalled();
     expect(page.scripts).toHaveLength(0);
+  });
+});
+
+
+describe('hidden native input failures', () => {
+  it.each(['hover', 'dblClick'] as const)('rejects hidden %s without native events or DOM fallback', async method => {
+    const page = new ActionPage();
+    page.visibility = 'hidden';
+    page.cdp = vi.fn().mockResolvedValue({});
+    page.results = [resolveOk, { x: 20, y: 30, w: 100, h: 20, visible: true }];
+    await expect(page[method]('#target')).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('visible browser page') });
+    expect(vi.mocked(page.cdp).mock.calls.some(([name]) => name.startsWith('Input.'))).toBe(false);
+    expect(page.scripts.some(script => script.includes('new MouseEvent'))).toBe(false);
+  });
+
+  it('rejects hidden drag without dispatching input', async () => {
+    const page = new ActionPage();
+    page.visibility = 'hidden';
+    page.cdp = vi.fn().mockResolvedValue({});
+    const rect = { x: 10, y: 20, w: 30, h: 20, visible: true };
+    page.results = [resolveOk, rect, resolveOk, { source: rect, target: rect }];
+    await expect(page.drag('#source', '#target')).rejects.toBeInstanceOf(NativeInputVisibilityError);
+    expect(vi.mocked(page.cdp).mock.calls.some(([name]) => name.startsWith('Input.'))).toBe(false);
+  });
+
+  it('does not swallow blocked native clicks or replay them as DOM clicks', async () => {
+    const page = new ActionPage();
+    page.nativeClick = vi.fn().mockRejectedValue(new NativeInputVisibilityError());
+    page.results = [resolveOk, { x: 10, y: 20, w: 30, h: 20, visible: true, hit: 'target' }];
+    await expect(page.click('#target')).rejects.toBeInstanceOf(NativeInputVisibilityError);
+    expect(page.nativeClick).toHaveBeenCalledTimes(1);
+    expect(page.scripts.some(script => script.includes('el.click()'))).toBe(false);
+  });
+
+  it('does not swallow blocked native keys or synthesize a duplicate event', async () => {
+    const page = new ActionPage();
+    page.nativeKeyPress = vi.fn().mockRejectedValue(new NativeInputVisibilityError());
+    await expect(page.pressKey('Enter')).rejects.toBeInstanceOf(NativeInputVisibilityError);
+    expect(page.scripts).toEqual([]);
   });
 });

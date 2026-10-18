@@ -21,13 +21,13 @@ const TEXT = 'nice video 👍';
 
 describe('youtube comment', () => {
   const command = getRegistry().get('youtube/comment');
-  const page = { evaluate: vi.fn() };
+  const page = { evaluateOnce: vi.fn() };
   let stderr;
 
   beforeEach(() => {
     mockPrepare.mockReset().mockResolvedValue(undefined);
     mockReadSapisid.mockReset().mockResolvedValue('sapisid-value');
-    page.evaluate.mockReset();
+    page.evaluateOnce.mockReset();
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
@@ -44,13 +44,27 @@ describe('youtube comment', () => {
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT })).rejects.toThrow(/--execute/);
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT })).rejects.toBeInstanceOf(ArgumentError);
     expect(mockPrepare).not.toHaveBeenCalled();
-    expect(page.evaluate).not.toHaveBeenCalled();
+    expect(page.evaluateOnce).not.toHaveBeenCalled();
+  });
+
+  it('refuses older runtimes before navigation rather than using a retrying evaluator', async () => {
+    const evaluate = vi.fn();
+    await expect(command.func({ evaluate }, { url: VIDEO_ID, text: TEXT, execute: true }))
+      .rejects.toThrow(/evaluateOnce/);
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(mockPrepare).not.toHaveBeenCalled();
+  });
+
+  it('does not retry an unknown write outcome', async () => {
+    page.evaluateOnce.mockRejectedValueOnce(Object.assign(new Error('target navigated'), { code: 'target_navigated' }));
+    await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toThrow(/target navigated/);
+    expect(page.evaluateOnce).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an empty comment before any navigation', async () => {
     await expect(command.func(page, { url: VIDEO_ID, text: '   ', execute: true })).rejects.toBeInstanceOf(ArgumentError);
     expect(mockPrepare).not.toHaveBeenCalled();
-    expect(page.evaluate).not.toHaveBeenCalled();
+    expect(page.evaluateOnce).not.toHaveBeenCalled();
   });
 
   it('rejects targets that do not resolve to an 11-char video id', async () => {
@@ -62,45 +76,45 @@ describe('youtube comment', () => {
   });
 
   it('accepts a full watch URL and extracts the video id', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'Ugx_abc', visible: true, listRead: true });
+    page.evaluateOnce.mockResolvedValueOnce({ ok: true, commentId: 'Ugx_abc', visible: true, listRead: true });
     const rows = await command.func(page, { url: `https://www.youtube.com/watch?v=${VIDEO_ID}&t=42`, text: TEXT, execute: true });
     expect(rows[0].url).toBe(`https://www.youtube.com/watch?v=${VIDEO_ID}&lc=Ugx_abc`);
-    expect(String(page.evaluate.mock.calls[0][0])).toContain(JSON.stringify(VIDEO_ID));
+    expect(String(page.evaluateOnce.mock.calls[0][0])).toContain(JSON.stringify(VIDEO_ID));
   });
 
   it('throws AuthRequiredError when the SAPISID cookie is missing', async () => {
     mockReadSapisid.mockResolvedValueOnce(null);
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toBeInstanceOf(AuthRequiredError);
-    expect(page.evaluate).not.toHaveBeenCalled();
+    expect(page.evaluateOnce).not.toHaveBeenCalled();
   });
 
   it('maps an in-page auth failure to AuthRequiredError', async () => {
-    page.evaluate.mockResolvedValueOnce({ error: 'auth', message: 'Not logged in' });
+    page.evaluateOnce.mockResolvedValueOnce({ error: 'auth', message: 'Not logged in' });
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toBeInstanceOf(AuthRequiredError);
   });
 
   it('maps HTTP / layout failures to CommandExecutionError with the page message', async () => {
-    page.evaluate.mockResolvedValueOnce({ error: 'http', message: 'No comment section found — comments may be disabled' });
+    page.evaluateOnce.mockResolvedValueOnce({ error: 'http', message: 'No comment section found — comments may be disabled' });
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true }))
       .rejects.toThrow(/comments may be disabled/);
-    page.evaluate.mockResolvedValueOnce({ error: 'config', message: 'YouTube config not found' });
+    page.evaluateOnce.mockResolvedValueOnce({ error: 'config', message: 'YouTube config not found' });
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true }))
       .rejects.toBeInstanceOf(CommandExecutionError);
   });
 
   it('fails typed on a malformed page result instead of inventing a row', async () => {
-    page.evaluate.mockResolvedValueOnce({ unexpected: true });
+    page.evaluateOnce.mockResolvedValueOnce({ unexpected: true });
     await expect(command.func(page, { url: VIDEO_ID, text: TEXT, execute: true })).rejects.toBeInstanceOf(CommandExecutionError);
   });
 
   it('posts exactly once and returns a verified row with the comment permalink', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'UgxCommentId123', visible: true, listRead: true });
+    page.evaluateOnce.mockResolvedValueOnce({ ok: true, commentId: 'UgxCommentId123', visible: true, listRead: true });
 
     const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
 
     expect(mockPrepare).toHaveBeenCalledTimes(1);
-    expect(page.evaluate).toHaveBeenCalledTimes(1);
-    const script = String(page.evaluate.mock.calls[0][0]);
+    expect(page.evaluateOnce).toHaveBeenCalledTimes(1);
+    const script = String(page.evaluateOnce.mock.calls[0][0]);
     expect(script).toContain("post('next', { videoId })");
     expect(script).toContain("findKeyDeep(section.body, 'createCommentParams')");
     // The read-back is what decides `verified`, so it must be in the script.
@@ -120,7 +134,7 @@ describe('youtube comment', () => {
   });
 
   it('reports an accepted write without a comment id as posted-unverified, never as a failure', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: null, visible: false, listRead: false });
+    page.evaluateOnce.mockResolvedValueOnce({ ok: true, commentId: null, visible: false, listRead: false });
 
     const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
 
@@ -139,7 +153,7 @@ describe('youtube comment', () => {
     // Regression, observed 2026-09-13 on video _azfxIliMgI: create_comment
     // answered 200 with a real-looking id, and the comment was never visible.
     // A returned id is not proof of publication; the read-back is.
-    page.evaluate.mockResolvedValueOnce({
+    page.evaluateOnce.mockResolvedValueOnce({
       ok: true,
       commentId: 'UgxDsuScjOf_N_l8Cu94AaABAg',
       visible: false,
@@ -162,7 +176,7 @@ describe('youtube comment', () => {
   });
 
   it('reports posted-unverified when the comment list could not be read back at all', async () => {
-    page.evaluate.mockResolvedValueOnce({ ok: true, commentId: 'UgxUnread', visible: false, listRead: false });
+    page.evaluateOnce.mockResolvedValueOnce({ ok: true, commentId: 'UgxUnread', visible: false, listRead: false });
 
     const rows = await command.func(page, { url: VIDEO_ID, text: TEXT, execute: true });
 
@@ -171,7 +185,7 @@ describe('youtube comment', () => {
   });
 
   it('unwraps Browser Bridge envelopes before reading the result', async () => {
-    page.evaluate.mockResolvedValueOnce({
+    page.evaluateOnce.mockResolvedValueOnce({
       session: 'browser:default',
       data: { ok: true, commentId: 'UgxEnvelope', visible: true, listRead: true },
     });

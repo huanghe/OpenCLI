@@ -90,3 +90,15 @@ in session even though the post listing is public.
 
 - Chrome running and **logged into** reddit.com
 - [Browser Bridge extension](/guide/browser-bridge) installed
+
+## Search ranking
+
+`search` uses Reddit's web-search order and hydrates the ranked post IDs through
+`/by_id`, preserving the existing output columns and media fields. Subreddit, sort
+and time filters are passed to web search. `--limit` accepts 1–1000; pagination
+stops after ten web pages, with a warning if that cap prevents reaching the limit.
+
+Unsupported initial web markup falls back to legacy search ranking with a warning.
+Login/challenge responses, HTTP failures (including 429), pagination errors and
+hydration failures do not trigger that fallback. Posts omitted by hydration are
+skipped with a warning while retaining the order of available posts.

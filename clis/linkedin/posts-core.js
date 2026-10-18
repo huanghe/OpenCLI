@@ -1,3 +1,4 @@
+import { locatePostCards } from './post-roots.js';
 import { CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import {
   assertLinkedInAuthenticated,
@@ -97,8 +98,8 @@ export function buildPostsScript() {
     for (const expander of expanders.slice(0, 20)) {
       try { expander.click(); } catch {}
     }
-    const cards = Array.from(document.querySelectorAll('article, [role="article"], .feed-shared-update-v2, .occludable-update'))
-      .filter((card) => clean(card.innerText || card.textContent || '').length > 60);
+    const locatePostCards = ${locatePostCards.toString()};
+    const { cards, unmatchedPermalinks } = locatePostCards(document);
     const rows = [];
     const seen = new Set();
     const stopLine = (line) => /^(like|comment|repost|send|share|copy link|follow|following|connect|message|activate to view|promoted|show more|see more)$/i.test(line)
@@ -172,7 +173,7 @@ export function buildPostsScript() {
       };
     };
     for (const card of cards) {
-      const root = card.closest('article, [role="article"], .feed-shared-update-v2, .occludable-update') || card;
+      const root = card;
       if (!root || seen.has(root)) continue;
       seen.add(root);
       const rawFullText = String(root.innerText || root.textContent || '');
@@ -206,7 +207,7 @@ export function buildPostsScript() {
         raw_text: rawText,
       });
     }
-    return { rows, url: location.href, title: document.title || '' };
+    return { rows, unmatchedPermalinks, url: location.href, title: document.title || '' };
   })()`;
 }
 
@@ -217,11 +218,13 @@ export async function collectPosts(page, args) {
   await page.wait(5);
   await assertLinkedInAuthenticated(page, 'LinkedIn posts');
   let rows = [];
+  let unmatchedPermalinks = 0;
   for (let i = 0; i < 6 && rows.length < limit; i++) {
     const payload = unwrapEvaluateResult(await page.evaluate(buildPostsScript()));
     if (!payload || !Array.isArray(payload.rows)) {
       throw new CommandExecutionError('LinkedIn posts returned malformed extraction payload');
     }
+    unmatchedPermalinks = Math.max(unmatchedPermalinks, Number(payload.unmatchedPermalinks) || 0);
     rows = rows.concat(payload.rows.map(normalizePost));
     const seen = new Set();
     rows = rows.filter((row) => {
@@ -235,6 +238,7 @@ export async function collectPosts(page, args) {
     await page.wait(1);
   }
   if (rows.length === 0) {
+    if (unmatchedPermalinks) throw new CommandExecutionError('LinkedIn activity page contains post permalinks but no supported post cards; the page layout may have changed.');
     throw new EmptyResultError('linkedin posts', 'No visible posts were found on the LinkedIn activity page.');
   }
   return rows.slice(0, limit).map((row, index) => ({ rank: index + 1, ...row }));

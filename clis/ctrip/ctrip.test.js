@@ -66,7 +66,8 @@ function createPageMock(evaluateResults, networkCaptures = []) {
         startNetworkCapture: vi.fn().mockResolvedValue(true),
         readNetworkCapture: vi.fn()
             .mockResolvedValueOnce([])
-            .mockResolvedValueOnce(networkCaptures),
+            .mockResolvedValueOnce(networkCaptures)
+            .mockResolvedValue([]),
     };
 }
 
@@ -451,14 +452,6 @@ describe('ctrip hotel-search command (registry-level)', () => {
         roomInfo: [{ priceInfo: { price: 548, currency: 'RMB' } }],
     };
 
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('hotels.ctrip.com');
-    });
-
     it('rejects invalid city / date / limit before browser navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { city: 'shanghai', checkin: '2026-06-15', checkout: '2026-06-17', limit: 5 }))
@@ -585,14 +578,6 @@ describe('ctrip flight command (registry-level)', () => {
         };
     }
 
-    it('declares Strategy.INTERCEPT + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('intercept');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('flights.ctrip.com');
-    });
-
     it('rejects invalid IATA / date / from==to / limit before browser navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { from: 'PE', to: 'SHA', date: '2026-06-15', limit: 5 }))
@@ -641,7 +626,52 @@ describe('ctrip flight command (registry-level)', () => {
         await expect(cmd.func(createPageMock([], [batchCapture({}, { responseBodyTruncated: true })]), args))
             .rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('capture limit') });
         await expect(cmd.func(createPageMock([], [batchCapture(batchPayload([itinerary()], { finished: false }))]), args))
-            .rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('reported completion') });
+            .rejects.toMatchObject({ code: 'TIMEOUT' });
+    });
+
+    it('defaults to foreground for visibility-gated flight loading', () => {
+        expect(cmd.defaultWindowMode).toBe('foreground');
+    });
+
+    it('waits through a slow incomplete response and an unfinished batch without DOM cards', async () => {
+        const page = createPageMock([]);
+        const pending = batchCapture({}, { requestId: 'a', captureComplete: false, responsePreview: undefined });
+        const first = batchCapture(batchPayload([itinerary()], { finished: false }), { requestId: 'a', captureComplete: true });
+        const last = batchCapture(batchPayload([itinerary({ id: 'second', price: 499 })]), { requestId: 'b', captureComplete: true });
+        page.readNetworkCapture.mockReset().mockResolvedValueOnce([]);
+        for (let i = 0; i < 14; i++) page.readNetworkCapture.mockResolvedValueOnce([pending]);
+        page.readNetworkCapture.mockResolvedValueOnce([first]).mockResolvedValueOnce([last]);
+        const rows = await cmd.func(page, { from: 'PEK', to: 'SHA', date: '2026-06-15', limit: 5 });
+        expect(rows).toHaveLength(2);
+        expect(page.wait).toHaveBeenCalledTimes(15);
+        expect(page.wait).toHaveBeenCalledWith({ time: 1 });
+        expect(page.readNetworkCapture).toHaveBeenCalledWith({ retainIncomplete: true });
+        expect(page.evaluate.mock.calls.every(([script]) => !script.includes('.flight-item'))).toBe(true);
+    });
+
+    it('waits for an earlier body even when the final batch completes first', async () => {
+        const page = createPageMock([]);
+        const pending = batchCapture({}, { requestId: 'first', captureComplete: false, responsePreview: undefined });
+        const last = batchCapture(batchPayload([itinerary({ id: 'last' })]), { requestId: 'last', captureComplete: true });
+        const first = batchCapture(batchPayload([itinerary({ id: 'first' })], { finished: false }), { requestId: 'first', captureComplete: true });
+        page.readNetworkCapture.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([pending, last]).mockResolvedValueOnce([first]);
+        const rows = await cmd.func(page, { from: 'PEK', to: 'SHA', date: '2026-06-15', limit: 5 });
+        expect(rows).toHaveLength(2); expect(page.wait).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not accept a stale or foreign-origin batch', async () => {
+        const page = createPageMock([], [
+            batchCapture(batchPayload([itinerary()]), { timestamp: 1 }),
+            batchCapture(batchPayload([itinerary()]), { url: 'https://evil.invalid/international/search/api/search/batchSearch' }),
+        ]);
+        await expect(cmd.func(page, { from: 'PEK', to: 'SHA', date: '2026-06-15', limit: 5 })).rejects.toMatchObject({ code: 'TIMEOUT' });
+    });
+
+    it('decodes completed base64 captures and rejects unavailable completed bodies', async () => {
+        const encoded = 'base64:' + Buffer.from(JSON.stringify(batchPayload([itinerary()]))).toString('base64');
+        const args = { from: 'PEK', to: 'SHA', date: '2026-06-15', limit: 5 };
+        expect(await cmd.func(createPageMock([], [batchCapture({}, { responsePreview: encoded })]), args)).toHaveLength(1);
+        await expect(cmd.func(createPageMock([], [batchCapture({}, { captureComplete: true, responsePreview: undefined })]), args)).rejects.toThrow(/unavailable/);
     });
 
     it('builds URL with lowercase IATA codes and Y_S_C_F cabin', async () => {
@@ -887,14 +917,6 @@ describe('ctrip flight-round command (registry-level)', () => {
         cabin: null,
     };
 
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('flights.ctrip.com');
-    });
-
     it('rejects invalid IATA / date / from==to / return-before-depart / limit before navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { from: 'PE', to: 'SHA', depart: '2026-08-15', return: '2026-08-22', limit: 5 }))
@@ -1016,14 +1038,6 @@ describe('ctrip train command (registry-level)', () => {
         fromPrice: 626,
         seats: ['二等座有票', '一等座(抢)', '商务座(抢)'],
     };
-
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('trains.ctrip.com');
-    });
 
     it('rejects invalid station / date / from==to / limit before browser navigation', async () => {
         const page = createPageMock([]);
@@ -1220,14 +1234,6 @@ describe('ctrip buildHotelDetailUrl', () => {
 describe('ctrip hotel command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/hotel');
 
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('hotels.ctrip.com');
-    });
-
     it('rejects a non-numeric / zero id before browser navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { id: 'shanghai' }))
@@ -1340,14 +1346,6 @@ describe('ctrip buildBusListUrl', () => {
 
 describe('ctrip bus command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/bus');
-
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('bus.ctrip.com');
-    });
 
     it('rejects invalid city / date / from==to / limit before browser navigation', async () => {
         const page = createPageMock([]);
@@ -1474,14 +1472,6 @@ describe('ctrip buildFerryListUrl', () => {
 
 describe('ctrip ferry command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/ferry');
-
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('ship.ctrip.com');
-    });
 
     it('rejects invalid city / date / from==to / limit before browser navigation', async () => {
         const page = createPageMock([]);
@@ -1618,14 +1608,6 @@ describe('ctrip buildCruisePortLookupJs (JSDOM)', () => {
 describe('ctrip cruise command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/cruise');
 
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('cruise.ctrip.com');
-    });
-
     it('rejects a blank / over-long port and invalid limit before navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { port: '', limit: 5 }))
@@ -1742,14 +1724,6 @@ describe('ctrip buildTourListUrl', () => {
 describe('ctrip tour command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/tour');
 
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('vacations.ctrip.com');
-    });
-
     it('rejects a blank destination and invalid limit before navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { destination: '', limit: 5 }))
@@ -1833,14 +1807,6 @@ describe('ctrip buildPackageListUrl', () => {
 describe('ctrip package command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/package');
 
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('vacations.ctrip.com');
-    });
-
     it('rejects a blank destination and invalid limit before navigation', async () => {
         const page = createPageMock([]);
         await expect(cmd.func(page, { destination: '', limit: 5 }))
@@ -1900,14 +1866,6 @@ describe('ctrip buildAttractionPlaceUrl', () => {
 
 describe('ctrip attraction command (registry-level)', () => {
     const cmd = getRegistry().get('ctrip/attraction');
-
-    it('declares Strategy.COOKIE + browser:true + navigateBefore:false + access:read', () => {
-        expect(cmd.access).toBe('read');
-        expect(cmd.browser).toBe(true);
-        expect(String(cmd.strategy)).toContain('cookie');
-        expect(cmd.navigateBefore).toBe(false);
-        expect(cmd.domain).toBe('you.ctrip.com');
-    });
 
     it('rejects a non-numeric city and invalid limit before navigation', async () => {
         const page = createPageMock([]);
@@ -1999,4 +1957,12 @@ describe('ctrip buildWaitForAttractionsJs (JSDOM)', () => {
         await expect(dom.window.Function(`return (${buildWaitForAttractionsJs('1')})`)())
             .resolves.toBe('content');
     });
+});
+
+it('keeps browser commands read-only and lets adapters control navigation', () => {
+    for (const name of ['hotel-search', 'flight', 'flight-round', 'train', 'hotel', 'bus', 'ferry', 'cruise', 'tour', 'package', 'attraction']) {
+        expect(getRegistry().get(`ctrip/${name}`), name).toMatchObject({
+            access: 'read', browser: true, navigateBefore: false,
+        });
+    }
 });
