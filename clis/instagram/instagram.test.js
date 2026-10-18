@@ -14,6 +14,15 @@ import { getRegistry } from '@jackwener/opencli/registry';
  */
 async function runCommandEvaluate(commandName, fetchFn, replacements) {
     const cmd = getRegistry().get('instagram/' + commandName);
+    if (cmd.func) {
+        const args = Object.fromEntries(Object.entries(replacements).map(([key, value]) => [key.match(/args\.(\w+)/)[1], JSON.parse(value)]));
+        const page = { goto: vi.fn(), evaluate: async script => new Function('fetch', `return (${script})`)(async (...args) => {
+            const response = await fetchFn(...args);
+            return { ...response, text: response.text ?? (async () => JSON.stringify(await response.json())) };
+        }) };
+        return cmd.func(page, args);
+    }
+
     let js = cmd.pipeline.find((s) => s.evaluate).evaluate;
     for (const [placeholder, value] of Object.entries(replacements)) {
         js = js.split(placeholder).join(value);

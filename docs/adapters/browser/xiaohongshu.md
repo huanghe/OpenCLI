@@ -103,3 +103,15 @@ opencli xiaohongshu delete-note 6a08ba0b000000000702a893 --execute
 
 - Chrome running and **logged into** xiaohongshu.com
 - [Browser Bridge extension](/guide/browser-bridge) installed
+
+
+### User profile pagination
+
+`user --limit` accepts 1–1000 notes and `--timeout` accepts 1–1800 seconds
+(default 300). The timeout covers navigation and hydration as well as scrolling.
+Pagination keeps notes by ID across store replacements, waits two seconds after
+each scroll, and tolerates two consecutive reads without new IDs. It stops after
+three stagnant scrolls, the time budget, or a limit-scaled scroll cap (6–100).
+If fewer notes are collected than requested, a warning identifies the stopping
+condition. Login walls and malformed snapshots remain errors even after some
+notes were collected. These changes were validated only with offline fixtures.

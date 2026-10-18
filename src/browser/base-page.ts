@@ -35,9 +35,18 @@ import {
   type TargetMatchLevel,
 } from './target-resolver.js';
 import { TargetError, type TargetErrorCode } from './target-errors.js';
-import { CliError } from '../errors.js';
+import { CliError, CommandExecutionError } from '../errors.js';
 import { formatSnapshot } from '../snapshotFormatter.js';
 import { installVisualRefOverlayJs, removeVisualRefOverlayJs } from './visual-refs.js';
+
+export const NATIVE_INPUT_VISIBILITY_JS = 'document.visibilityState';
+
+export class NativeInputVisibilityError extends CommandExecutionError {
+  constructor() {
+    super('Native input requires a visible browser page; input was not dispatched.',
+      'Select the target tab and restore/uncover its browser window, then retry.');
+  }
+}
 
 export interface ResolveSuccess {
   matches_n: number;
@@ -349,6 +358,13 @@ export abstract class BasePage implements IPage {
     throw new Error(`Click failed: ${result.error ?? 'JS click and CDP fallback both failed'}`);
   }
 
+  protected async assertNativeInputVisible(): Promise<void> {
+    let visibility: unknown;
+    try { visibility = await this.evaluate(NATIVE_INPUT_VISIBILITY_JS); }
+    catch { throw new NativeInputVisibilityError(); }
+    if (visibility !== 'visible') throw new NativeInputVisibilityError();
+  }
+
   /** Uses native CDP click support when the concrete page exposes it. */
   protected async tryNativeClick(x: number, y: number): Promise<boolean> {
     const nativeClick = (this as IPage).nativeClick;
@@ -356,7 +372,8 @@ export abstract class BasePage implements IPage {
     try {
       await nativeClick.call(this, x, y);
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof NativeInputVisibilityError) throw error;
       return false;
     }
   }
@@ -364,6 +381,7 @@ export abstract class BasePage implements IPage {
   protected async tryNativeMouseMove(x: number, y: number): Promise<boolean> {
     const cdp = (this as IPage).cdp;
     if (typeof cdp !== 'function') return false;
+    await this.assertNativeInputVisible();
     try {
       await cdp.call(this, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
       return true;
@@ -375,6 +393,7 @@ export abstract class BasePage implements IPage {
   protected async tryNativeDoubleClick(x: number, y: number): Promise<boolean> {
     const cdp = (this as IPage).cdp;
     if (typeof cdp !== 'function') return false;
+    await this.assertNativeInputVisible();
     try {
       await cdp.call(this, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
       await cdp.call(this, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
@@ -390,6 +409,7 @@ export abstract class BasePage implements IPage {
   protected async tryNativeDrag(from: { x: number; y: number }, to: { x: number; y: number }): Promise<boolean> {
     const cdp = (this as IPage).cdp;
     if (typeof cdp !== 'function') return false;
+    await this.assertNativeInputVisible();
     const midX = Math.round((from.x + to.x) / 2);
     const midY = Math.round((from.y + to.y) / 2);
     try {
@@ -416,7 +436,8 @@ export abstract class BasePage implements IPage {
     try {
       await nativeClick.call(this, resolved.x, resolved.y);
       return { matches_n: 1, match_level: resolved.matchLevel, click_method: 'ax' };
-    } catch {
+    } catch (error) {
+      if (error instanceof NativeInputVisibilityError) throw error;
       return null;
     }
   }
@@ -493,7 +514,8 @@ export abstract class BasePage implements IPage {
     try {
       await nativeKeyPress.call(this, key, modifiers);
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof NativeInputVisibilityError) throw error;
       return false;
     }
   }
@@ -1245,6 +1267,7 @@ export abstract class CDPBasePage extends BasePage {
   }
 
   async nativeClick(x: number, y: number): Promise<void> {
+    await this.assertNativeInputVisible();
     await this.cdp('Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x,
@@ -1272,6 +1295,7 @@ export abstract class CDPBasePage extends BasePage {
   }
 
   async nativeKeyPress(key: string, modifiers: string[] = []): Promise<void> {
+    await this.assertNativeInputVisible();
     let modifierFlags = 0;
     for (const mod of modifiers) {
       if (mod === 'Alt') modifierFlags |= 1;

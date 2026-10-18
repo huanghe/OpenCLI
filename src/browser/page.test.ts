@@ -173,6 +173,16 @@ describe('Page network capture compatibility', () => {
     }));
   });
 
+  it('forwards the opt-in incomplete-capture retention flag', async () => {
+    sendCommandMock.mockResolvedValueOnce([]);
+    const page = new Page('suno', undefined, undefined, undefined, 'adapter');
+    await page.readNetworkCapture({ retainIncomplete: true });
+    expect(sendCommandMock).toHaveBeenCalledWith('network-capture-read', expect.objectContaining({
+      session: 'suno',
+      retainIncomplete: true,
+    }));
+  });
+
   it('rethrows unrelated network capture failures', async () => {
     sendCommandMock.mockRejectedValueOnce(new Error('Extension disconnected'));
 
@@ -532,5 +542,48 @@ describe('Page.getCookies error classification', () => {
   it('preserves a valid empty cookie jar', async () => {
     sendCommandMock.mockReset().mockResolvedValue([]);
     await expect(new Page('auth').getCookies({ url: 'https://example.com' })).resolves.toEqual([]);
+  });
+});
+
+describe('Page.evaluateOnce', () => {
+  beforeEach(() => { sendCommandMock.mockReset(); });
+
+  it('never replays a write when the target navigates after dispatch', async () => {
+    let writes = 0;
+    const error = Object.assign(new Error('Inspected target navigated or closed'), { code: 'target_navigated' });
+    sendCommandMock.mockImplementation(async () => { writes++; throw error; });
+    const page = new Page('site:youtube', undefined, undefined, undefined, 'adapter');
+    await expect(page.evaluateOnce('publishComment()')).rejects.toBe(error);
+    expect(writes).toBe(1);
+  });
+
+  it('preserves routing and returns the write result', async () => {
+    sendCommandMock.mockResolvedValue({ commentId: 'created' });
+    const page = new Page('site:youtube', 60, 'profile', 'background', 'adapter', 'persistent');
+    await expect(page.evaluateOnce('publishComment()')).resolves.toEqual({ commentId: 'created' });
+    expect(sendCommandMock).toHaveBeenCalledWith('exec', expect.objectContaining({
+      session: 'site:youtube', contextId: 'profile', windowMode: 'background',
+      surface: 'adapter', siteSession: 'persistent', idleTimeout: 60,
+    }));
+  });
+});
+
+
+describe('daemon-backed native input visibility', () => {
+  beforeEach(() => { sendCommandMock.mockReset(); sendCommandFullMock.mockReset(); });
+  it('blocks hidden native clicks, key presses and quad clicks before CDP dispatch', async () => {
+    sendCommandMock.mockResolvedValue('hidden');
+    const page = new Page('hidden-session');
+    await expect(page.nativeClick(1, 2)).rejects.toMatchObject({ code: 'COMMAND_EXEC' });
+    await expect(page.pressKey('Enter')).rejects.toMatchObject({ code: 'COMMAND_EXEC' });
+    await expect(page.clickWithQuads('1')).rejects.toMatchObject({ code: 'COMMAND_EXEC' });
+    expect(sendCommandMock.mock.calls.every(([action]) => action === 'exec')).toBe(true);
+    expect(sendCommandMock.mock.calls.every(([, args]) => args.code.includes('document.visibilityState'))).toBe(true);
+  });
+  it('does not dispatch input when the visibility probe fails', async () => {
+    sendCommandMock.mockRejectedValue(new Error('Execution context unavailable'));
+    const page = new Page('unavailable-session');
+    await expect(page.nativeKeyPress('Enter')).rejects.toMatchObject({ code: 'COMMAND_EXEC' });
+    expect(sendCommandMock.mock.calls.some(([action]) => action === 'cdp')).toBe(false);
   });
 });

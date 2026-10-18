@@ -134,7 +134,8 @@ export const READ_XHS_ENVELOPE_JS = `
     const msg = payload.msg || payload.message || inner.msg || inner.message || '';
     // A 2xx carrying a non-zero code is a rejected write, not a completed one.
     const rejected = (code !== undefined && code !== null && code !== 0) || success === false;
-    return { payload, inner, code: code === undefined ? null : code, rejected, msg: String(msg || '') };
+    const confirmed = !rejected && (code === 0 || success === true);
+    return { payload, inner, code: code === undefined ? null : code, rejected, confirmed, msg: String(msg || '') };
   };
 `;
 

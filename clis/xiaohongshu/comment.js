@@ -134,6 +134,10 @@ cli({
             throw new ArgumentError('Refusing to post: pass --execute to actually publish this comment');
         }
 
+        if (typeof page.evaluateOnce !== 'function') {
+            throw new CommandExecutionError(`${COMMAND_LABEL} requires a runtime with evaluateOnce support`, 'Update opencli before posting; do not fall back to a retrying evaluator.');
+        }
+
         try {
             // Paces the navigation and retries once through a cooldown when
             // risk control soft-blocks the page (throws SECURITY_BLOCK when it
@@ -172,7 +176,7 @@ cli({
                 throw new CommandExecutionError(`${COMMAND_LABEL}: expected note ${noteId}, got ${parsed.pathname}`);
             }
 
-            const result = requireActionResult(await page.evaluate(buildCommentScript({ noteId, content })), 'comment-action');
+            const result = requireActionResult(await page.evaluateOnce(buildCommentScript({ noteId, content })), 'comment-action');
             if (!result.ok) {
                 if (result.reason === 'login_wall') {
                     throw new AuthRequiredError('www.xiaohongshu.com');

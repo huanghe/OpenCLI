@@ -88,6 +88,7 @@ function extractLikedTweet(result, seen) {
 function parseLikes(data, seen) {
     const tweets = [];
     let nextCursor = null;
+    let hasTimelineItems = false;
     const instructions = data?.data?.user?.result?.timeline_v2?.timeline?.instructions
         || data?.data?.user?.result?.timeline?.timeline?.instructions
         || [];
@@ -103,6 +104,9 @@ function parseLikes(data, seen) {
                 nextCursor = content?.value || content?.itemContent?.value || nextCursor;
                 continue;
             }
+            // Deduplication or unsupported item shapes must not turn a repeated
+            // non-empty page into proof that the archive is complete.
+            hasTimelineItems = true;
             const direct = extractLikedTweet(content?.itemContent?.tweet_results?.result, seen);
             if (direct) {
                 tweets.push(direct);
@@ -115,7 +119,7 @@ function parseLikes(data, seen) {
             }
         }
     }
-    return { tweets, nextCursor };
+    return { tweets, nextCursor, hasTimelineItems };
 }
 function readResumeFile(filePath, expected = null) {
     if (!filePath || !fs.existsSync(filePath))
@@ -300,8 +304,15 @@ cli({
             const fetchCount = Math.min(100, remaining);
             const apiUrl = buildLikesUrl(likesQueryId, userId, fetchCount, cursor);
             const data = unwrapBrowserResult(await page.evaluate(`async () => {
-        const r = await fetch(${JSON.stringify(apiUrl)}, { headers: ${headers}, credentials: 'include' });
-        return r.ok ? await r.json() : { error: r.status };
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const r = await fetch(${JSON.stringify(apiUrl)}, { headers: ${headers}, credentials: 'include' });
+            return r.ok ? await r.json() : { error: r.status };
+          } catch (e) {
+            if (attempt === 2) throw e;
+            await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+          }
+        }
       }`));
             if (data?.error) {
                 if ((useOutputFile ? outputCount : allTweets.length) === 0)
@@ -317,7 +328,7 @@ cli({
                 }
                 throw new CommandExecutionError('twitter_likes_protocol_error: missing Likes timeline instructions');
             }
-            const { tweets, nextCursor } = parseLikes(data, seen);
+            const { tweets, nextCursor, hasTimelineItems } = parseLikes(data, seen);
             if (useOutputFile) {
                 appendJsonlRows(outputFile, tweets);
                 outputCount += tweets.length;
@@ -325,7 +336,7 @@ cli({
             else {
                 allTweets.push(...tweets);
             }
-            const pageComplete = !nextCursor;
+            const pageComplete = !nextCursor || (nextCursor === cursor && !hasTimelineItems);
             writeResumeFile(resumeFile, {
                 cursor: pageComplete ? null : nextCursor,
                 count: useOutputFile ? outputCount : allTweets.length,

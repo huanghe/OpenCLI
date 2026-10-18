@@ -172,7 +172,9 @@ export function buildCommentScript({ sapisid, videoId, text }) {
         if (commentId) {
           for (let attempt = 0; attempt < 3 && !visible; attempt += 1) {
             if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
-            const listed = await listedComments();
+            // A read-back failure cannot undo an already accepted write.
+            let listed;
+            try { listed = await listedComments(); } catch { continue; }
             if (!listed) continue;
             listRead = true;
             visible = listed.ids ? listed.ids.includes(commentId) : listed.raw.includes(commentId);
@@ -190,6 +192,7 @@ cli({
     description: 'Post a top-level comment on a YouTube video (requires --execute)',
     domain: 'www.youtube.com',
     strategy: Strategy.COOKIE,
+    navigateBefore: false,
     args: [
         { name: 'url', required: true, positional: true, help: 'YouTube video URL or video ID' },
         { name: 'text', required: true, positional: true, help: 'Comment text to post' },
@@ -208,13 +211,16 @@ cli({
             throw new ArgumentError('Refusing to post: pass --execute to actually publish this comment');
         }
 
+        if (typeof page.evaluateOnce !== 'function') {
+            throw new CommandExecutionError('youtube comment requires a runtime with evaluateOnce support', 'Update opencli before posting; do not fall back to a retrying evaluator.');
+        }
         await prepareYoutubeApiPage(page);
         const sapisid = await readYoutubeSapisid(page);
         if (!sapisid) {
             throw new AuthRequiredError('www.youtube.com', 'Not logged in (SAPISID cookie missing)');
         }
 
-        const result = unwrapBrowserResult(await page.evaluate(buildCommentScript({ sapisid, videoId, text })));
+        const result = unwrapBrowserResult(await page.evaluateOnce(buildCommentScript({ sapisid, videoId, text })));
         if (result?.error === 'auth') {
             throw new AuthRequiredError('www.youtube.com');
         }
