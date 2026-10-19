@@ -48,6 +48,7 @@ type FakeBridge = {
 
 type TestSite = {
   url: string;
+  navigationRequests: Map<string, number>;
   releaseCapture: () => void;
   close: () => Promise<void>;
 };
@@ -151,10 +152,30 @@ async function startFakeBridge(): Promise<FakeBridge | null> {
 }
 
 async function startTestSite(): Promise<TestSite> {
+  const navigationRequests = new Map<string, number>();
   const pending = new Set<ServerResponse>();
   const releaseCapture = () => { for (const res of pending) res.end('true}'); pending.clear(); };
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://a.opencli.test');
+    if (url.pathname === '/slow-navigation' || url.pathname === '/slow-redirect') {
+      navigationRequests.set(url.href, (navigationRequests.get(url.href) ?? 0) + 1);
+      // Keep the first navigation pending beyond lease creation's 300/500ms
+      // waits. Chromium can reject a second identical in-flight navigation.
+      const timer = setTimeout(() => {
+        if (url.pathname === '/slow-redirect') {
+          res.writeHead(302, { Location: `/navigation-done${url.search}` });
+          res.end();
+        } else {
+          res.end('<!doctype html><title>Navigation done</title>Loaded');
+        }
+      }, 1500);
+      res.on('close', () => clearTimeout(timer));
+      return;
+    }
+    if (url.pathname === '/navigation-done') {
+      res.end('<!doctype html><title>Navigation done</title>Redirected');
+      return;
+    }
     if (url.pathname === '/capture-start') {
       res.writeHead(302, { Location: '/capture-held' });
       res.end();
@@ -210,6 +231,7 @@ async function startTestSite(): Promise<TestSite> {
   const port = addressPort(server);
   return {
     url: `http://a.opencli.test:${port}/`,
+    navigationRequests,
     releaseCapture,
     close: async () => {
       await new Promise<void>((resolve, reject) => {
@@ -388,6 +410,33 @@ describe('Browser Bridge AX real Chrome smoke', () => {
       }
     }
   });
+
+  it.each([false, true])('navigates slow adapter pages once with network capture=%s', async (capture) => {
+    if (skipReason) throw new Error(skipReason);
+    const session = { session: `navigation-${capture}`, surface: 'adapter' as const };
+    const command = async (cmd: Omit<Command, 'id'>) => {
+      const result = await bridge!.sendCommand({ ...cmd, ...session });
+      expect(result.ok, result.error).toBe(true);
+      return result;
+    };
+    // Fresh lease, reused placeholder, then another navigation after CDP
+    // attachment. Capture mirrors --trace without relying on a public site.
+    try {
+      for (let run = 0; run < 3; run++) {
+        if (capture) await command({ action: 'network-capture-start' });
+        const target = new URL(`${run === 2 ? '/slow-redirect' : '/slow-navigation'}?capture=${capture}&run=${run}`, site!.url);
+        const expected = run === 2 ? new URL(`/navigation-done${target.search}`, site!.url).href : target.href;
+        const nav = await command({ action: 'navigate', url: target.href });
+        expect(nav.data).toMatchObject({ url: expected, timedOut: false, title: 'Navigation done' });
+        expect(await command({ action: 'exec', page: nav.page, code: 'location.href' }))
+          .toMatchObject({ data: expected, page: nav.page });
+        expect(site!.navigationRequests.get(new URL(target.pathname + target.search, 'http://a.opencli.test').href)).toBe(1);
+        if (run === 0) await command({ action: 'close-window' });
+      }
+    } finally {
+      await command({ action: 'close-window' });
+    }
+  }, 30_000);
 
   it('retains a redirected streaming response across reads in both backends', async () => {
     if (skipReason) {

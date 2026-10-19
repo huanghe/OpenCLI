@@ -16,6 +16,7 @@ let daemon: ChildProcess | undefined;
 let site: ReturnType<typeof createServer>;
 let siteUrl: string;
 let stderr = '';
+let slowNavigations = 0;
 const env = () => ({...process.env, HOME:path.join(temp,'home'), OPENCLI_DAEMON_PORT:'', OPENCLI_PROFILE:'', OPENCLI_NO_UPDATE_CHECK:'1'});
 async function cli(args: string[]) {
   try {
@@ -86,7 +87,15 @@ beforeAll(async () => {
       res.end("fetch('/api/items').then(r=>r.json()); function latent(id) { return fetch(`/api/items/${id}`); }");
     } else if (req.url === '/api/items') {
       res.setHeader('content-type','application/json'); res.end('[{"id":42,"title":"fixture"}]');
-    } else { res.setHeader('content-type','text/html'); res.end('<!doctype html><title>P0 fixture</title><script src="/app.js"></script><h1>Fixture</h1><button id=save onclick="this.textContent=\'Saved\'">Save</button>'); }
+    } else {
+      res.setHeader('content-type','text/html');
+      const respond = () => res.end('<!doctype html><title>P0 fixture</title><script src="/app.js"></script><h1>Fixture</h1><button id=save onclick="this.textContent=\'Saved\'">Save</button>');
+      if (req.url === '/?slow') {
+        slowNavigations++;
+        const timer = setTimeout(respond, 1500);
+        res.on('close', () => clearTimeout(timer));
+      } else respond();
+    }
   });
   await new Promise<void>(resolve => site.listen(0,'127.0.0.1',resolve));
   siteUrl = `http://127.0.0.1:${(site.address() as any).port}/`;
@@ -160,9 +169,12 @@ describe('P0 real Chrome', () => {
     fs.writeFileSync(path.join(dir,'local.js'), `import {cli,Strategy} from '@jackwener/opencli/registry';
       cli({site:'p0fixture',name:'local',description:'Fixture',access:'read',browser:false,strategy:Strategy.PUBLIC,
         args:[{name:'id',type:'int',default:7}],func:async args => [{id:args.id}]});`);
-    fs.writeFileSync(path.join(dir,'browser.js'), `import {cli,Strategy} from '@jackwener/opencli/registry';
-      cli({site:'p0fixture',name:'browser',description:'Fixture',access:'read',browser:true,navigateBefore:false,
-        func:async (page,args) => { await page.goto(${JSON.stringify(siteUrl)}); return page.evaluate('fetch("/api/items").then(r => r.json())'); }});`);
+    for (const name of ['browser', 'prenavigate']) {
+      fs.writeFileSync(path.join(dir,`${name}.js`), `import {cli,Strategy} from '@jackwener/opencli/registry';
+        cli({site:'p0fixture',name:${JSON.stringify(name)},description:'Fixture',access:'read',browser:true,
+          navigateBefore:${JSON.stringify(name === 'prenavigate' ? siteUrl + '?slow' : false)},
+          func:async (page,args) => { await page.goto(${JSON.stringify(siteUrl + '?slow')}); return page.evaluate('fetch("/api/items").then(r => r.json())'); }});`);
+    }
     fs.writeFileSync(path.join(dir, 'stream.js'), `import {cli,Strategy} from '@jackwener/opencli/registry';
       cli({site:'p0fixture',name:'stream',description:'Raw export fixture',access:'read',browser:false,strategy:Strategy.PUBLIC,
         args:[{name:'stdout',type:'boolean',default:false}],func:async args => {
@@ -176,7 +188,13 @@ describe('P0 real Chrome', () => {
     expect((await cli(['adapter', 'check', 'p0fixture/local'])).ok).toBe(true);
     expect(await cli(['p0fixture','local','--id','42','-f','json'])).toEqual([{id:42}]);
     expect(await cli(['adapter', 'test', 'p0fixture/local', '--args', '{"id":42}'])).toMatchObject({ name: 'p0fixture/local', rows: 1, result: [{ id: 42 }] });
-    expect(await cli(['p0fixture','browser','-f','json'])).toEqual([{id:42,title:'fixture'}]);
-  },30_000);
+    for (const name of ['browser', 'prenavigate']) {
+      for (const trace of [[], ['--trace', 'retain-on-failure'], []]) {
+        const before = slowNavigations;
+        expect(await cli(['p0fixture',name,'-f','json', ...trace])).toEqual([{id:42,title:'fixture'}]);
+        expect(slowNavigations - before).toBe(1);
+      }
+    }
+  },60_000);
 
 });

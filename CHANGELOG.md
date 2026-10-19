@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.1](https://github.com/jackwener/opencli/compare/v2.0.0...v2.0.1) (2026-10-20)
+
+Includes Chrome extension **1.0.26**. Update the extension to receive the navigation fix.
+
+### Features
+
+- Add a validated Douyin single-content detail reader (#2667).
+
+### Fixes
+
+- Avoid duplicate browser navigations during extension tab lease creation, which can cause Chromium's `Navigation rejected.` error without `--trace` (#2487, #2679).
+- Reject native input on hidden pages without replaying the action (#2664).
+- Wait for complete Ctrip flight captures in the foreground (#2663).
+- Capture page-owned TikTok profile responses and the current identity (#2662).
+- Locate LinkedIn activity cards from post permalinks (#2661).
+- Bound Xiaohongshu lazy user pagination while retaining collected results (#2666).
+- Classify Xueqiu page failures and expose response shape (#2668).
+- Classify Instagram read failures and navigate target profiles (#2669).
+
 ## [2.0.0](https://github.com/jackwener/opencli/compare/v1.8.8...v2.0.0) (2026-10-17)
 
 A major release focused on agent experience: a smaller CLI surface, predictable JSON results, native Chrome APIs, and evidence-driven adapter development. Includes Chrome extension **1.0.25**.

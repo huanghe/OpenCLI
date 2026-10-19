@@ -9,6 +9,7 @@ type MockTab = {
   id: number;
   windowId: number;
   url?: string;
+  pendingUrl?: string;
   title?: string;
   active?: boolean;
   status?: string;
@@ -250,6 +251,7 @@ function createChromeMock() {
 
 describe('background tab isolation', () => {
   beforeEach(() => {
+    vi.doUnmock('./cdp');
     vi.resetModules();
     vi.useRealTimers();
     MockWebSocket.instances = [];
@@ -646,7 +648,7 @@ describe('background tab isolation', () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(chrome.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://first.example' }));
+    expect(chrome.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'about:blank' }));
     expect(update).toHaveBeenCalledWith(1, { url: 'https://first.example' });
     expect(create).not.toHaveBeenCalled();
   });
@@ -964,6 +966,66 @@ describe('background tab isolation', () => {
     expect(mod.__test__.getSession(adapterKey('twitter'))?.preferredTabId).toBe(1);
   });
 
+  it.each([
+    ['navigate', 'new-window'], ['navigate', 'placeholder'], ['navigate', 'new-tab'], ['navigate', 'existing-tab'],
+    ['tabs', 'new-window'], ['tabs', 'placeholder'], ['tabs', 'new-tab'],
+  ] as const)('starts one slow navigation for %s with a %s lease', async (action, mode) => {
+    vi.useFakeTimers();
+    const { chrome, tabs } = createChromeMock();
+    tabs[0].url = 'about:blank';
+    const target = 'https://slow.example/start';
+    const redirected = 'https://slow.example/done';
+    const requests: string[] = [];
+    const listeners = new Set<(id: number, info: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void>();
+    chrome.tabs.onUpdated.addListener = vi.fn(fn => { listeners.add(fn); });
+    chrome.tabs.onUpdated.removeListener = vi.fn(fn => { listeners.delete(fn); });
+    const navigate = (tab: MockTab, url: string) => {
+      if (url === target) {
+        requests.push(url);
+        if (tab.pendingUrl === url) throw new Error('Navigation rejected.');
+        tab.pendingUrl = url;
+        tab.status = 'loading';
+        setTimeout(() => {
+          tab.url = redirected;
+          tab.pendingUrl = undefined;
+          tab.title = 'Done';
+          tab.status = 'complete';
+          for (const listener of listeners) listener(tab.id, { status: 'complete' }, tab as chrome.tabs.Tab);
+        }, 1200);
+      } else {
+        tab.url = url;
+        tab.status = 'complete';
+      }
+      return { ...tab };
+    };
+    chrome.tabs.update = vi.fn(async (id: number, updates: { url?: string; active?: boolean }) => {
+      const tab = tabs.find(t => t.id === id)!;
+      return updates.url ? navigate(tab, updates.url) : { ...tab };
+    });
+    chrome.tabs.create = vi.fn(async ({ windowId, url, active }) => {
+      const tab: MockTab = { id: 10, windowId: windowId!, url: 'about:blank', active, groupId: -1 };
+      tabs.push(tab);
+      return navigate(tab, url!);
+    });
+    chrome.windows.create = vi.fn(async ({ url, focused, width, height, type }) => {
+      navigate(tabs[0], url);
+      return { id: 1, url, focused, width, height, type };
+    });
+    vi.stubGlobal('chrome', chrome);
+    const mod = await import('./background');
+    const initialListeners = listeners.size;
+    const key = adapterKey('slow');
+    if (mode === 'placeholder') mod.__test__.setAutomationWindowId(key, 1);
+    if (mode === 'new-tab') mod.__test__.setSession(adapterKey('busy'), { windowId: 1, owned: true, preferredTabId: 1 });
+    if (mode === 'existing-tab') mod.__test__.setSession(key, { windowId: 1, owned: true, preferredTabId: 1 });
+    const result = mod.__test__.handleCommand({ id: 'slow-nav', action, op: 'new', url: target, session: 'slow', surface: 'adapter' });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await result).toMatchObject({ ok: true });
+    if (action === 'navigate') expect(await result).toMatchObject({ data: { url: redirected, title: 'Done', timedOut: false } });
+    expect(requests).toEqual([target]);
+    expect(listeners.size).toBe(initialListeners);
+  });
+
   it('treats normalized same-url navigate as already complete', async () => {
     const { chrome, tabs, update } = createChromeMock();
     tabs[0].url = 'https://www.bilibili.com/';
@@ -972,7 +1034,7 @@ describe('background tab isolation', () => {
     vi.stubGlobal('chrome', chrome);
 
     const mod = await import('./background');
-    mod.__test__.setAutomationWindowId(adapterKey('twitter'), 1);
+    mod.__test__.setSession(adapterKey('twitter'), { windowId: 1, owned: true, preferredTabId: 1 });
 
     const result = await mod.__test__.handleNavigate(
       { id: 'same-url', action: 'navigate', url: 'https://www.bilibili.com', session: adapterKey('twitter') },
@@ -2054,7 +2116,7 @@ describe('background tab isolation', () => {
 
     const mod = await import('./background');
 
-    const first = await mod.__test__.handleCommand({
+    const firstNavigation = mod.__test__.handleCommand({
       id: 'persistent-nav-1',
       action: 'navigate',
       session: 'chatgpt',
@@ -2062,7 +2124,9 @@ describe('background tab isolation', () => {
       siteSession: 'persistent',
       url: 'https://chatgpt.com/',
     });
-    expect(first.ok).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    const first = await firstNavigation;
+    expect(first.ok, first.error).toBe(true);
     const page = first.page;
 
     const session = mod.__test__.getSession(adapterKey('chatgpt'));

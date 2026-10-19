@@ -1104,7 +1104,9 @@ async function createOwnedTabLease(leaseKey: string, initialUrl?: string): Promi
 async function createOwnedTabLeaseUnlocked(leaseKey: string, initialUrl?: string): Promise<ResolvedTab> {
   const targetUrl = (initialUrl && isSafeNavigationUrl(initialUrl)) ? initialUrl : BLANK_PAGE;
   const role = getOwnedWindowRole(leaseKey);
-  const { windowId, initialTabId } = await ensureOwnedContainerWindow(role, targetUrl, getWindowMode(leaseKey));
+  // Container creation must not start the lease's navigation as well. A slow
+  // initial load can still expose about:blank, causing a duplicate tabs.update.
+  const { windowId, initialTabId } = await ensureOwnedContainerWindow(role, BLANK_PAGE, getWindowMode(leaseKey));
   let tab: chrome.tabs.Tab;
 
   if (initialTabIsAvailable(initialTabId)) {
@@ -1761,9 +1763,11 @@ async function handleNavigate(cmd: Command, leaseKey: string): Promise<Result> {
   if (!isSafeNavigationUrl(cmd.url)) {
     return { id: cmd.id, ok: false, error: 'Blocked URL scheme -- only http:// and https:// are allowed' };
   }
-  // Pass target URL so that first-time window creation can start on the right domain
+  // Acquire a blank lease first: this handler alone starts the navigation.
+  // Passing cmd.url into lease creation issues the same request twice while
+  // the first load is pending, which Chromium can reject (#2487).
   const cmdTabId = await resolveCommandTabId(cmd);
-  const resolved = await resolveTab(cmdTabId, leaseKey, cmd.url);
+  const resolved = await resolveTab(cmdTabId, leaseKey);
   const tabId = resolved.tabId;
 
   const beforeTab = resolved.tab ?? await chrome.tabs.get(tabId);

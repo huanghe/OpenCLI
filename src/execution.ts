@@ -333,9 +333,7 @@ export async function executeCommand(
           });
           // Navigate directly — the extension's handleNavigate already has a fast-path
           // that skips navigation if the tab is already at the target URL.
-          // This avoids an extra exec round-trip (getCurrentUrl) on first command and
-          // lets the extension create the automation window with the target URL directly
-          // instead of about:blank.
+          // This avoids an extra exec round-trip (getCurrentUrl) on first command.
           try {
             await page.goto(preNavUrl);
             observation?.record({
