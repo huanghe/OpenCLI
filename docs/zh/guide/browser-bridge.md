@@ -6,13 +6,17 @@ OpenCLI 通过轻量级 **Browser Bridge** Chrome 扩展 + 微守护进程连接
 
 ## 扩展安装
 
-### 方法 1：下载预构建版本（推荐）
+### 方法 1：Chrome Web Store（推荐）
+
+在 [Chrome Web Store](https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk) 安装 **OpenCLI** 扩展。
+
+### 方法 2：下载预构建版本
 
 1. 前往 GitHub [Releases 页面](https://github.com/jackwener/opencli/releases) 下载最新的 `opencli-extension-v{version}.zip`。
 2. 解压后打开 `chrome://extensions`，启用**开发者模式**。
 3. 点击**加载已解压的扩展程序**，选择解压后的文件夹。
 
-### 方法 2：加载源码（开发者）
+### 方法 3：加载源码（开发者）
 
 1. 打开 `chrome://extensions`，启用**开发者模式**。
 2. 点击**加载已解压的扩展程序**，选择仓库中的 `extension/` 目录。

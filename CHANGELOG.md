@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.2](https://github.com/jackwener/opencli/compare/v2.0.1...v2.0.2) (2026-10-20)
+
+### Fixes
+
+- Publish through npm Trusted Publishing (GitHub Actions OIDC), with provenance required by default (#2622).
+- Verify the published tarball, provenance source identity, signatures, and a clean mise installation before announcing a release. Release retries also verify any existing version instead of silently accepting it.
+- Keep Chrome extension **1.0.26** unchanged; this release repairs npm publishing evidence. Earlier package versions are immutable and do not gain provenance retroactively.
+
 ## [2.0.1](https://github.com/jackwener/opencli/compare/v2.0.0...v2.0.1) (2026-10-20)
 
 Includes Chrome extension **1.0.26**. Update the extension to receive the navigation fix.

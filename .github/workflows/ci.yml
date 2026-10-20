@@ -35,6 +35,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Test release verification
+        run: node --test scripts/verify-release.test.mjs
+
       # Guard: committed cli-manifest.json must match the one build regenerates.
       # Prevents silent drift where unrelated adapter entries vanish or change
       # across PRs (agent hits unexpected manifest diff → surgical-merge churn).

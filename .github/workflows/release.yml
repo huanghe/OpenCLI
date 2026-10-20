@@ -9,19 +9,36 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install npm with OIDC support
+        run: npm install --global npm@11.21.0
+
+      - name: Check release version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          test "$GITHUB_REF_NAME" = "v$VERSION"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Test release verification
+        run: node --test scripts/verify-release.test.mjs
 
       - name: Type check
         run: npx tsc --noEmit
@@ -36,6 +53,19 @@ jobs:
             echo "::error::cli-manifest.json drift detected at release time. Run 'npm run build' locally and commit the result before tagging."
             exit 1
           fi
+
+      - name: Pack the built package once
+        id: package
+        run: |
+          TARBALL=$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" --json | node -pe "JSON.parse(require('fs').readFileSync(0, 'utf8'))[0].filename")
+          echo "tarball=$RUNNER_TEMP/$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve the package for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-${{ steps.package.outputs.version }}
+          path: ${{ steps.package.outputs.tarball }}
 
       - name: Install extension dependencies
         run: npm ci
@@ -55,17 +85,71 @@ jobs:
           cd extension-package
           zip -r ../opencli-extension-v${EXT_VERSION}.zip .
 
-      - name: Create GitHub Release
+      # npm trusts jackwener/OpenCLI's release.yml through OIDC. No publish token.
+      # A rerun may find the immutable version already published; it still has
+      # to pass every verification below before the release is announced.
+      - name: Publish to npm with provenance
+        env:
+          RELEASE_VERSION: ${{ steps.package.outputs.version }}
+          TARBALL: ${{ steps.package.outputs.tarball }}
+        run: |
+          STATUS=$(node --input-type=module -e '
+            const response = await fetch(`https://registry.npmjs.org/@jackwener%2fopencli/${process.env.RELEASE_VERSION}`, { signal: AbortSignal.timeout(20000) });
+            if (![200, 404].includes(response.status)) throw new Error(`Registry HTTP ${response.status}`);
+            console.log(response.status);
+          ')
+          if [ "$STATUS" = 404 ]; then
+            npm publish "$TARBALL" --provenance --access public
+          else
+            echo "Version already exists; verifying its bytes and provenance."
+          fi
+
+      - name: Verify the published package and provenance identity
+        env:
+          TARBALL: ${{ steps.package.outputs.tarball }}
+        run: node scripts/verify-release.mjs "$TARBALL"
+
+      - name: Verify signatures and installed CLI
+        env:
+          RELEASE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          INSTALL_DIR=$(mktemp -d)
+          cd "$INSTALL_DIR"
+          printf '{"private":true}\n' > package.json
+          npm install --ignore-scripts --no-audit --no-fund --prefer-online "@jackwener/opencli@$RELEASE_VERSION"
+          npm audit signatures
+          test "$(node_modules/.bin/opencli --version)" = "$RELEASE_VERSION"
+
+      - name: Install mise for trust-policy regression
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: '2026.10.8'
+          install: false
+          cache: false
+
+      - name: Verify mise installation with default trust policy
+        env:
+          RELEASE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          REPRO_DIR=$(mktemp -d)
+          export MISE_CONFIG_DIR="$REPRO_DIR/config"
+          export MISE_GLOBAL_CONFIG_FILE="$MISE_CONFIG_DIR/config.toml"
+          export MISE_DATA_DIR="$REPRO_DIR/data"
+          export MISE_CACHE_DIR="$REPRO_DIR/cache"
+          export MISE_STATE_DIR="$REPRO_DIR/state"
+          export MISE_TMP_DIR="$REPRO_DIR/tmp"
+          mkdir -p "$MISE_CONFIG_DIR"
+          printf '[tools]\nnode = "system"\n' > "$MISE_GLOBAL_CONFIG_FILE"
+          cd "$REPRO_DIR"
+          mise use -g "npm:@jackwener/opencli@$RELEASE_VERSION"
+          test "$(mise exec -- opencli --version)" = "$RELEASE_VERSION"
+
+      - name: Create verified GitHub Release
         uses: softprops/action-gh-release@v3.0.0
         with:
           generate_release_notes: true
           files: |
             opencli-extension-v*.zip
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Trigger website rebuild
         uses: peter-evans/repository-dispatch@v4

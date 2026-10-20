@@ -6,13 +6,17 @@ OpenCLI connects to your browser through a lightweight **Browser Bridge** Chrome
 
 ## Extension Installation
 
-### Method 1: Download Pre-built Release (Recommended)
+### Method 1: Chrome Web Store (Recommended)
+
+Install **OpenCLI** from the [Chrome Web Store](https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk).
+
+### Method 2: Download Pre-built Release
 
 1. Go to the GitHub [Releases page](https://github.com/jackwener/opencli/releases) and download the latest `opencli-extension-v{version}.zip`.
 2. Unzip the file and open `chrome://extensions`, enable **Developer mode** (top-right toggle).
 3. Click **Load unpacked** and select the unzipped folder.
 
-### Method 2: Load Unpacked Source (For Developers)
+### Method 3: Load Unpacked Source (For Developers)
 
 1. Open `chrome://extensions` and enable **Developer mode**.
 2. Click **Load unpacked** and select the `extension/` directory from the repository.

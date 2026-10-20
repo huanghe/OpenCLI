@@ -11,6 +11,10 @@
 npm install -g @jackwener/opencli
 ```
 
+## Install the Browser Bridge Extension
+
+For browser commands, install **OpenCLI** from the [Chrome Web Store](https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk) (recommended). See [Browser Bridge setup](./browser-bridge) for manual installation and verification.
+
 ## Install from Source
 
 ```bash

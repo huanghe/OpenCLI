@@ -1,8 +1,9 @@
 {
   "name": "@jackwener/opencli",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "description": "Make any website your CLI. AI-powered.",
   "engines": {
