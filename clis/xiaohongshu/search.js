@@ -391,18 +391,25 @@ function buildInSiteSearchJs(query) {
             return { status: 'auth', detail: 'login_wall' };
           return null;
         };
+        // Legacy layout: a single header <input id="search-input"> next to a
+        // .search-icon button. 2026-11 layout: the header input is hidden and
+        // the visible box is an AI-style <textarea> (#search-input-in-feeds on
+        // the explore feed, #search-input-ai in the top bar) inside a
+        // .wendian-wrapper whose .submit-button-wrapper submits the query.
+        const AI_TEXTAREA_SELECTOR = '#search-input-in-feeds, #search-input-ai, textarea[name="aiSearchTextarea"]';
         let input = null;
         for (let attempt = 0; attempt < 50 && !input; attempt++) {
           const wall = blocked();
           if (wall) return wall;
           const inputs = matches('#search-input');
           if (inputs.length > 1) return { status: 'layout', detail: 'ambiguous_search_input' };
-          input = inputs[0];
+          input = inputs[0] || matches(AI_TEXTAREA_SELECTOR)[0];
           if (!input) await sleep(100);
         }
-        if (!(input instanceof HTMLInputElement) || input.disabled || input.readOnly)
+        const isAiTextarea = typeof HTMLTextAreaElement !== 'undefined' && input instanceof HTMLTextAreaElement;
+        if (!(input instanceof HTMLInputElement || isAiTextarea) || input.disabled || input.readOnly)
           return { status: 'layout', detail: 'search_input_not_available' };
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        const setter = Object.getOwnPropertyDescriptor(isAiTextarea ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set;
         input.focus();
         setter.call(input, query);
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -411,7 +418,9 @@ function buildInSiteSearchJs(query) {
         if (input.value !== query) return { status: 'layout', detail: 'search_input_not_filled' };
         const wall = blocked();
         if (wall) return wall;
-        const buttons = matches('.search-icon');
+        const buttons = isAiTextarea
+          ? Array.from(input.closest('.wendian-wrapper')?.querySelectorAll('.submit-button-wrapper') || []).filter(visible)
+          : matches('.search-icon');
         if (buttons.length !== 1) return { status: 'layout', detail: 'ambiguous_or_missing_search_button' };
         const button = buttons[0];
         if (button.disabled || button.getAttribute('aria-disabled') === 'true')
@@ -422,8 +431,13 @@ function buildInSiteSearchJs(query) {
           const wall = blocked();
           if (wall) return wall;
           const searchRendered = document.querySelector('.search-layout__top > .filter, .filter.ai-chat-filter, section.note-item, section:has(a[href*="/search_result/"])');
-          const keyword = new URLSearchParams(location.search).get('keyword');
-          if (location.pathname === '/search_result' && keyword === query &&
+          // The AI layout lands on /search_result_ai and double-encodes the
+          // keyword (%25E5...), so decode until stable before comparing.
+          let keyword = new URLSearchParams(location.search).get('keyword') || '';
+          for (let i = 0; i < 3 && /%[0-9a-f]{2}/i.test(keyword); i++) {
+            try { keyword = decodeURIComponent(keyword); } catch { break; }
+          }
+          if ((location.pathname === '/search_result' || location.pathname === '/search_result_ai') && keyword === query &&
               (searchRendered || document.querySelector('.search-empty-wrapper'))) {
             return { status: 'ok', detail: location.pathname };
           }
