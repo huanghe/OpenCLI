@@ -26914,6 +26914,46 @@
     "sourceFile": "paperreview/submit.js"
   },
   {
+    "site": "pinduoduo",
+    "name": "search",
+    "description": "拼多多商品搜索（H5 首屏，需要登录态）",
+    "access": "read",
+    "domain": "mobile.yangkeduo.com",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "query",
+        "type": "str",
+        "required": true,
+        "positional": true,
+        "help": "搜索关键词"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 10,
+        "required": false,
+        "help": "返回条数 (1-20，首屏上限)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "title",
+      "price",
+      "price_label",
+      "group_price",
+      "sales",
+      "tags",
+      "goods_id",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "pinduoduo/search.js",
+    "sourceFile": "pinduoduo/search.js",
+    "navigateBefore": false
+  },
+  {
     "site": "pinterest",
     "name": "board-create",
     "description": "Create a new board on your account",
@@ -30249,6 +30289,13 @@
         "default": 2,
         "required": false,
         "help": "Max expansion passes when --expand-more is on (1–5; each round can fan out new \"more\" stubs)"
+      },
+      {
+        "name": "allow-partial",
+        "type": "bool",
+        "default": false,
+        "required": false,
+        "help": "With --expand-more: if Reddit denies /api/morechildren (HTTP 401/403, network-security block, or rate limit), keep the comments already loaded and append a NOTICE row instead of failing"
       }
     ],
     "columns": [
@@ -37265,36 +37312,34 @@
   {
     "site": "twitter",
     "name": "list-members",
-    "description": "Fetch members of a Twitter/X list (everyone the list owner has added)",
+    "description": "List the member accounts of a Twitter/X list",
     "access": "read",
     "domain": "x.com",
     "strategy": "cookie",
     "browser": true,
     "args": [
       {
-        "name": "list-id",
+        "name": "listId",
         "type": "string",
         "required": true,
         "positional": true,
-        "help": "Numeric list id or https://x.com/i/lists/<id>"
+        "help": "Numeric ID of a Twitter/X list (e.g. from `opencli twitter lists`)"
       },
       {
         "name": "limit",
         "type": "int",
-        "default": 200,
+        "default": 100,
         "required": false,
-        "help": "Maximum members to return (1-5000, default 200)"
+        "help": "Maximum number of members to return (default 100). Must be a positive integer."
       }
     ],
     "columns": [
-      "user_id",
       "screen_name",
       "name",
       "bio",
       "followers",
       "verified",
-      "avatar",
-      "url"
+      "user_id"
     ],
     "type": "js",
     "modulePath": "twitter/list-members.js",
@@ -37902,6 +37947,8 @@
       "text",
       "created_at",
       "likes",
+      "retweets",
+      "replies",
       "views",
       "url",
       "has_media",
