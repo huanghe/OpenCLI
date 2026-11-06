@@ -402,6 +402,50 @@ describe('xiaohongshu search', () => {
         }
     });
 
+    it('submits through the 2026-11 AI search textarea when the header input is hidden', async () => {
+        vi.useFakeTimers();
+        try {
+            const dom = new JSDOM(`
+              <body>
+                <input id="search-input">
+                <div class="search-icon"></div>
+                <div class="wendian-wrapper search-input large">
+                  <textarea id="search-input-in-feeds" name="aiSearchTextarea"></textarea>
+                  <div class="submit-button-wrapper custom-icon"><img class="submit-button"></div>
+                </div>
+              </body>
+            `, { url: 'https://www.xiaohongshu.com/explore' });
+            const { document } = dom.window;
+            const textarea = document.querySelector('#search-input-in-feeds');
+            const submit = document.querySelector('.submit-button-wrapper');
+            markVisible(textarea);
+            markVisible(submit);
+            let clicked = false;
+            submit.addEventListener('click', () => {
+                clicked = true;
+                // The AI layout double-encodes the keyword in the URL.
+                const once = encodeURIComponent('测试');
+                dom.window.history.pushState({}, '', `/search_result_ai?keyword=${encodeURIComponent(once)}&source=web_explore_feed`);
+                const filter = document.createElement('div');
+                filter.className = 'filter ai-chat-filter';
+                document.body.append(filter);
+            });
+            const script = __test__.buildInSiteSearchJs('测试');
+            const pending = Function(
+                'document', 'location', 'HTMLInputElement', 'HTMLTextAreaElement', 'Event', 'setTimeout',
+                `return (${script})`,
+            )(document, dom.window.location, dom.window.HTMLInputElement, dom.window.HTMLTextAreaElement, dom.window.Event, setTimeout);
+
+            await vi.runAllTimersAsync();
+            await expect(pending).resolves.toMatchObject({ status: 'ok', detail: '/search_result_ai' });
+            expect(textarea.value).toBe('测试');
+            expect(clicked).toBe(true);
+        }
+        finally {
+            vi.useRealTimers();
+        }
+    });
+
     it.each([
         ['hidden clones', 'ok'],
         ['duplicate input', 'layout'],
