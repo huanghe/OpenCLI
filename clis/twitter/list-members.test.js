@@ -3,106 +3,124 @@ import { getRegistry } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { __test__ } from './list-members.js';
 
-function userResult(id, screenName, extra = {}) {
+function memberResult(screenName, restId = `id_${screenName}`) {
     return {
         __typename: 'User',
-        rest_id: id,
-        core: { screen_name: screenName, name: `Name ${screenName}` },
-        legacy: { description: `bio ${screenName}`, followers_count: 10 },
-        avatar: { image_url: `https://pbs.twimg.com/profile_images/${id}/x_normal.jpg` },
-        ...extra,
+        rest_id: restId,
+        is_blue_verified: screenName === 'alice',
+        core: { screen_name: screenName, name: screenName.toUpperCase() },
+        relationship_counts: { followers: 7 },
+        legacy: { description: `${screenName} bio`, followers_count: 1 },
     };
 }
 
-function membersPayload(users, cursor) {
-    const entries = users.map((u) => ({
-        entryId: `user-${u.rest_id}`,
-        content: { entryType: 'TimelineTimelineItem', itemContent: { itemType: 'TimelineUser', user_results: { result: u } } },
+function membersPayload(screenNames, nextCursor) {
+    const entries = screenNames.map((name) => ({
+        entryId: `user-id_${name}`,
+        content: {
+            entryType: 'TimelineTimelineItem',
+            itemContent: { itemType: 'TimelineUser', user_results: { result: memberResult(name) } },
+        },
     }));
-    if (cursor) {
-        entries.push({ entryId: `cursor-bottom-${cursor}`, content: { entryType: 'TimelineTimelineCursor', cursorType: 'Bottom', value: cursor } });
+    entries.push({ entryId: 'cursor-top-1', content: { entryType: 'TimelineTimelineCursor', cursorType: 'Top', value: 'TOP' } });
+    if (nextCursor) {
+        entries.push({ entryId: 'cursor-bottom-1', content: { entryType: 'TimelineTimelineCursor', cursorType: 'Bottom', value: nextCursor } });
     }
     return { data: { list: { members_timeline: { timeline: { instructions: [{ type: 'TimelineAddEntries', entries }] } } } } };
 }
 
-function makePage(responses) {
-    const evaluate = vi.fn(async (script) => {
-        const source = String(script);
-        // queryId resolution probes (placeholder.json / bundle scan) → let the fallback win.
-        if (source.includes('placeholder.json') || source.includes('client-web')) return null;
-        return responses.shift();
-    });
+function createPage(responses, { cookies = [{ name: 'ct0', value: 'token' }] } = {}) {
     return {
-        goto: vi.fn().mockResolvedValue(undefined),
-        wait: vi.fn().mockResolvedValue(undefined),
-        getCookies: vi.fn().mockResolvedValue([{ name: 'ct0', value: 'csrf' }]),
-        evaluate,
+        getCookies: vi.fn(async () => cookies),
+        evaluate: vi.fn(async (script) => {
+            const text = String(script);
+            if (text.includes('placeholder.json')) return { session: 'site:twitter', data: null };
+            if (text.includes('/ListMembers')) return { session: 'site:twitter', data: responses.shift() ?? membersPayload([], null) };
+            throw new Error(`Unexpected evaluate: ${text.slice(0, 80)}`);
+        }),
     };
 }
 
-describe('twitter list-members', () => {
-    it('builds the ListMembers GraphQL url with and without cursor', () => {
-        const url = __test__.buildListMembersUrl('QID', '123', 100, 'c1');
-        expect(url).toContain('/i/api/graphql/QID/ListMembers');
-        expect(decodeURIComponent(url)).toContain('"listId":"123"');
-        expect(decodeURIComponent(url)).toContain('"cursor":"c1"');
-        expect(decodeURIComponent(__test__.buildListMembersUrl('QID', '123', 100))).not.toContain('"cursor"');
-    });
+const command = () => getRegistry().get('twitter/list-members');
+const memberCalls = (page) => page.evaluate.mock.calls
+    .map(([script]) => decodeURIComponent(String(script)))
+    .filter((text) => text.includes('/ListMembers'));
 
-    it('extracts members with discovery fields and dedupes by rest_id', () => {
-        const seen = new Set();
-        expect(__test__.extractMemberEntry(userResult('1', 'alice', { is_blue_verified: true }), seen)).toEqual({
-            user_id: '1',
-            screen_name: 'alice',
-            name: 'Name alice',
-            bio: 'bio alice',
-            followers: 10,
-            verified: true,
-            avatar: 'https://pbs.twimg.com/profile_images/1/x_400x400.jpg',
-            url: 'https://x.com/alice',
-        });
-        expect(__test__.extractMemberEntry(userResult('1', 'alice'), seen)).toBeNull();
-        expect(__test__.extractMemberEntry({ __typename: 'UserUnavailable' }, seen)).toBeNull();
-    });
-
-    it('parses members and the bottom cursor, including nested module items', () => {
-        const seen = new Set();
-        const payload = membersPayload([userResult('1', 'a'), userResult('2', 'b')], 'next');
-        payload.data.list.members_timeline.timeline.instructions[0].entries.push({
-            entryId: 'module-1',
-            content: { items: [{ item: { itemContent: { user_results: { result: userResult('3', 'c') } } } }] },
-        });
-        const { members, nextCursor } = __test__.parseListMembers(payload, seen);
-        expect(members.map((m) => m.screen_name)).toEqual(['a', 'b', 'c']);
-        expect(nextCursor).toBe('next');
-    });
-
-    it('accepts numeric ids and list URLs, rejects garbage', () => {
-        expect(__test__.parseListId('123')).toBe('123');
-        expect(__test__.parseListId('https://x.com/i/lists/456/members')).toBe('456');
-        expect(() => __test__.parseListId('abc')).toThrow(ArgumentError);
-    });
-
-    it('paginates until --limit and trims', async () => {
-        const command = getRegistry().get('twitter/list-members');
-        const page = makePage([
-            membersPayload([userResult('1', 'a'), userResult('2', 'b')], 'c1'),
-            membersPayload([userResult('3', 'c')], null),
+describe('twitter list-members helpers', () => {
+    it('parses users and the bottom cursor, ignoring the top cursor', () => {
+        const { users, nextCursor } = __test__.parseListMembers(membersPayload(['alice', 'bob'], 'NEXT'));
+        expect(nextCursor).toBe('NEXT');
+        expect(users).toEqual([
+            { screen_name: 'alice', name: 'ALICE', bio: 'alice bio', followers: 7, verified: true, user_id: 'id_alice' },
+            { screen_name: 'bob', name: 'BOB', bio: 'bob bio', followers: 7, verified: false, user_id: 'id_bob' },
         ]);
-        const rows = await command.func(page, { 'list-id': '123', limit: 3 });
-        expect(rows.map((r) => r.screen_name)).toEqual(['a', 'b', 'c']);
-        expect(page.goto).toHaveBeenCalledWith('https://x.com/i/lists/123/members', expect.any(Object));
     });
 
-    it('maps auth failures and empty lists', async () => {
-        const command = getRegistry().get('twitter/list-members');
-        const noCookie = makePage([]);
-        noCookie.getCookies.mockResolvedValue([]);
-        await expect(command.func(noCookie, { 'list-id': '1', limit: 10 })).rejects.toBeInstanceOf(AuthRequiredError);
+    it('reports a missing members timeline distinctly from an empty one', () => {
+        expect(__test__.parseListMembers({ data: {} }).instructions).toBeNull();
+        expect(__test__.parseListMembers(membersPayload([], null)).instructions).toEqual(expect.any(Array));
+    });
 
-        await expect(command.func(makePage([{ error: 403 }]), { 'list-id': '1', limit: 10 })).rejects.toBeInstanceOf(AuthRequiredError);
-        await expect(command.func(makePage([{ error: 404 }]), { 'list-id': '1', limit: 10 })).rejects.toBeInstanceOf(CommandExecutionError);
-        await expect(command.func(makePage([membersPayload([], null)]), { 'list-id': '1', limit: 10 })).rejects.toBeInstanceOf(EmptyResultError);
-        await expect(command.func(makePage([]), { 'list-id': '1', limit: 0 })).rejects.toBeInstanceOf(ArgumentError);
+    it('skips unavailable users and fails loudly on a user without screen_name', () => {
+        expect(__test__.extractMember({ __typename: 'UserUnavailable' })).toBeNull();
+        expect(() => __test__.extractMember({ __typename: 'User', core: {}, legacy: {} })).toThrow(CommandExecutionError);
+    });
+});
+
+describe('twitter list-members command', () => {
+    it('paginates by cursor, deduplicates and respects --limit', async () => {
+        const page = createPage([
+            membersPayload(['alice', 'bob'], 'cursor-1'),
+            membersPayload(['bob', 'carol', 'dave'], 'cursor-2'),
+        ]);
+
+        const rows = await command().func(page, { listId: '123', limit: 3 });
+
+        expect(rows.map((row) => row.screen_name)).toEqual(['alice', 'bob', 'carol']);
+        const calls = memberCalls(page);
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toContain('"listId":"123"');
+        expect(calls[0]).toContain('/_RDpx--fQKSccuRlGpEIoA/ListMembers');
+        expect(calls[1]).toContain('"cursor":"cursor-1"');
+    });
+
+    it('stops when the cursor repeats', async () => {
+        const page = createPage([
+            membersPayload(['alice'], 'same'),
+            membersPayload(['bob'], 'same'),
+            membersPayload(['carol'], 'other'),
+        ]);
+
+        const rows = await command().func(page, { listId: '123', limit: 50 });
+
+        expect(rows.map((row) => row.screen_name)).toEqual(['alice', 'bob']);
+        expect(memberCalls(page)).toHaveLength(2);
+    });
+
+    it('validates arguments before touching the page', async () => {
+        const page = createPage([]);
+        await expect(command().func(page, { listId: 'abc', limit: 10 })).rejects.toBeInstanceOf(ArgumentError);
+        await expect(command().func(page, { listId: '123', limit: 0 })).rejects.toBeInstanceOf(ArgumentError);
+        expect(page.getCookies).not.toHaveBeenCalled();
+    });
+
+    it('requires a logged-in session', async () => {
+        const page = createPage([], { cookies: [] });
+        await expect(command().func(page, { listId: '123', limit: 10 })).rejects.toBeInstanceOf(AuthRequiredError);
+    });
+
+    it('maps HTTP errors to typed errors', async () => {
+        await expect(command().func(createPage([{ error: 403 }]), { listId: '123', limit: 10 })).rejects.toBeInstanceOf(AuthRequiredError);
+        await expect(command().func(createPage([{ error: 404 }]), { listId: '123', limit: 10 })).rejects.toBeInstanceOf(CommandExecutionError);
+    });
+
+    it('reports an inaccessible list and an empty list as empty results', async () => {
+        await expect(command().func(createPage([{ data: {} }]), { listId: '123', limit: 10 })).rejects.toBeInstanceOf(EmptyResultError);
+        await expect(command().func(createPage([membersPayload([], null)]), { listId: '123', limit: 10 })).rejects.toBeInstanceOf(EmptyResultError);
+    });
+
+    it('fails instead of truncating when a later page loses the timeline', async () => {
+        const page = createPage([membersPayload(['alice'], 'cursor-1'), { data: {} }]);
+        await expect(command().func(page, { listId: '123', limit: 10 })).rejects.toBeInstanceOf(CommandExecutionError);
     });
 });
