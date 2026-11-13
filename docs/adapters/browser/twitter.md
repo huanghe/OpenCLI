@@ -63,6 +63,8 @@ opencli twitter search "react 19" --filter live
 opencli twitter following @elonmusk --limit 200
 opencli twitter followers @elonmusk --limit 100
 opencli twitter followers @elonmusk --limit 100 -f json | jq '.[] | select(.verified)'
+# Verified Followers tab only (X Premium or legacy verification)
+opencli twitter followers @elonmusk --verified --limit 100
 
 # Download profile media with cursor pagination
 opencli twitter download @elonmusk --limit 50 --output ./twitter-media
@@ -104,6 +106,9 @@ opencli twitter trending -v
 - Video `media_urls` point at the highest-bitrate mp4 variant X offers (previously the lowest, 480x270)
 - `search --type people` reads X's People tab (GraphQL product `People`) and returns account rows — `user_id`, `screen_name`, `name`, `bio`, `followers`, `verified`, `url`, `avatar` — instead of tweets; `--product` and `--top-by-engagement` are ignored in that mode
 - `profile` emits `avatar` (400x400) and `user_id` alongside the existing bio / count columns
-- `list-members` paginates the `ListMembers` GraphQL operation (default `--limit 200`) and emits `user_id`, `screen_name`, `name`, `bio`, `followers`, `verified`, `avatar`, `url`
+- `list-members` takes a numeric list id, paginates the `ListMembers` GraphQL operation (default `--limit 100`) and emits `screen_name`, `name`, `bio`, `followers`, `verified`, `user_id`
 - `following` / `followers` on an account whose list is hidden exit 0 with an empty array and print a single `PRIVATE_FOLLOWING` line on stderr (previously an `EMPTY_RESULT` error), so batch callers can skip without retrying
+- `followers --verified` reads the Verified Followers tab (GraphQL `BlueVerifiedFollowers`) instead of the Followers tab: same columns, only followers with a blue check
+- On another account, X lists mutual follows first on both the Followers and Following tabs, so the first rows of `followers` and `following` often match; the lists diverge after those
+- X serves only the first page of another account's followers (about 70 rows, 20 with `--verified`) and marks the timeline as ended, as on x.com itself, so a higher `--limit` returns no more rows there
 - `list-tweets`, `thread` and `search` emit `author_avatar` (the `_400x400` profile image) and `views` (numeric string, `'0'` when X omits it)
