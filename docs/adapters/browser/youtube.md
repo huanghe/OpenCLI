@@ -34,6 +34,8 @@ opencli youtube subscriptions --limit 30
 
 # Search and video info
 opencli youtube search "rust programming" --limit 5
+# Narrow query: keep whatever was found if pagination runs out before --limit
+opencli youtube search "rust programming" --limit 15 --upload month --partial
 opencli youtube video "https://www.youtube.com/watch?v=xxx"
 opencli youtube transcript "https://www.youtube.com/watch?v=xxx"
 
@@ -69,6 +71,7 @@ opencli youtube comment "https://www.youtube.com/watch?v=xxx" "Great video!" --e
 
 - `feed` and `search` emit `channel_avatar` (largest thumbnail the list page carries) and `video_id`; both are empty for result types that have no channel avatar or video, such as playlist lockups
 - `channel` adds `channel_id` (snake_case twin of `channelId`), `subscribers_count` and `video_count` as numbers parsed from the header text (`"1.2M subscribers"` / `"2120万位订阅者"` → `21200000`); `null` when the header has no such text
+- `search` follows continuations for up to 10 pages. If that is not enough to reach `--limit` (narrow queries, `--upload` filters) it fails by default, discarding the rows already found; `--partial` returns those rows instead. A repeated continuation cursor is treated the same way. Request failures (HTTP, timeout, auth) are still errors with `--partial`
 - `search --type channel` rows add `channel_id`, `handle`, `subscribers` (display text), `subscribers_count`, `video_count` and `description`, so callers no longer have to reverse the handle out of `url` before calling `channel`
 - `channel-videos <id|@handle|url>` follows InnerTube continuation tokens up to `--limit` (max 200)
 - `video` falls back to the channel's own browse response for `channelAvatar` / `subscribers` when the watch page ships no `videoOwnerRenderer` — one extra InnerTube call, only on the pages that need it
