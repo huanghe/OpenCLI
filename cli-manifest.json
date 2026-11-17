@@ -44443,6 +44443,13 @@
         "default": "",
         "required": false,
         "help": "Sort by: relevance, date, views, rating"
+      },
+      {
+        "name": "partial",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "help": "If pagination runs out before --limit is reached, return the results found so far instead of failing"
       }
     ],
     "columns": [
