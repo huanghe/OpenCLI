@@ -25,3 +25,6 @@ docs/.vitepress/cache
 *.db
 autoresearch/results/
 autoresearch-results.tsv
+
+# Default output directory of `opencli web read`; run from the repo root it lands here
+web-articles/
