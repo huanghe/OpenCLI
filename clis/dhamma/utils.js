@@ -325,6 +325,29 @@ export function resolveLanguage(languages, term) {
   return hit;
 }
 
+/** Turn CLI args into a search query (validates everything before any course request). */
+export function buildSearchQuery(args, meta, now = new Date()) {
+  const state = requireCategory(args.category);
+  const { from, to } = resolveDateRange(args, now);
+  const sort = requireSort(args.sort);
+  const terms = cleanText(args.location)
+    ? String(args.location).split(',').map(cleanText).filter(Boolean)
+    : [];
+  const regions = [...new Set(terms.map((term) => resolveLocation(meta.locations, term).key))];
+  const language = resolveLanguage(meta.languages, args.language);
+  const courseType = resolveCourseType(meta.courseTypes, state, args['course-type'] ?? args.courseType);
+  return {
+    state,
+    from,
+    to,
+    sort,
+    regions,
+    languages: language ? [language.iso] : [],
+    courseTypes: courseType ? [courseType.id] : [],
+    constraint: (meta.courseTypes[state] ?? []).map((ct) => ct.id),
+  };
+}
+
 // ── Search API ─────────────────────────────────────────────────────────────
 
 /**

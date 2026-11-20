@@ -4,6 +4,7 @@ import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultErr
 import { getRegistry } from '@jackwener/opencli/registry';
 import {
   buildSearchBody,
+  buildSearchQuery,
   mapCourse,
   parseSearchMeta,
   resolveDateRange,
@@ -11,7 +12,6 @@ import {
   resolveLocation,
   searchCourses,
 } from './utils.js';
-import { buildSearchQuery } from './search.js';
 import { listLocations } from './locations.js';
 import { extractApplicationsPayload, extractHistoryPayload, extractMessagesPayload, resolveDateSpan } from './mycourses.js';
 import { mapApplications } from './applications.js';

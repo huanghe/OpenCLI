@@ -3,16 +3,10 @@ import { cli, Strategy } from '@jackwener/opencli/registry';
 import { EmptyResultError } from '@jackwener/opencli/errors';
 import {
   MAX_SEARCH_LIMIT,
-  cleanText,
+  buildSearchQuery,
   fetchSearchMeta,
   mapCourse,
-  requireCategory,
   requireLimit,
-  requireSort,
-  resolveCourseType,
-  resolveDateRange,
-  resolveLanguage,
-  resolveLocation,
   searchCourses,
 } from './utils.js';
 
@@ -20,29 +14,6 @@ export const SEARCH_COLUMNS = [
   'rank', 'id', 'start', 'end', 'courseType', 'center', 'location',
   'country', 'languages', 'status', 'enrollmentOpens', 'url',
 ];
-
-/** Turn CLI args into a search query (validates everything before any course request). */
-export function buildSearchQuery(args, meta, now = new Date()) {
-  const state = requireCategory(args.category);
-  const { from, to } = resolveDateRange(args, now);
-  const sort = requireSort(args.sort);
-  const terms = cleanText(args.location)
-    ? String(args.location).split(',').map(cleanText).filter(Boolean)
-    : [];
-  const regions = [...new Set(terms.map((term) => resolveLocation(meta.locations, term).key))];
-  const language = resolveLanguage(meta.languages, args.language);
-  const courseType = resolveCourseType(meta.courseTypes, state, args['course-type'] ?? args.courseType);
-  return {
-    state,
-    from,
-    to,
-    sort,
-    regions,
-    languages: language ? [language.iso] : [],
-    courseTypes: courseType ? [courseType.id] : [],
-    constraint: (meta.courseTypes[state] ?? []).map((ct) => ct.id),
-  };
-}
 
 cli({
   site: 'dhamma',
