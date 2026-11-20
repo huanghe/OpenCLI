@@ -8632,6 +8632,216 @@
     "sourceFile": "devto/user.js"
   },
   {
+    "site": "dhamma",
+    "name": "applications",
+    "description": "Your active Vipassana course applications on myCourses (requires login)",
+    "access": "read",
+    "domain": "mycourses.dhamma.org",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [],
+    "columns": [
+      "course",
+      "participation",
+      "state",
+      "start",
+      "end",
+      "center",
+      "applicationId",
+      "contextId"
+    ],
+    "type": "js",
+    "modulePath": "dhamma/applications.js",
+    "sourceFile": "dhamma/applications.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "dhamma",
+    "name": "history",
+    "description": "Your Vipassana course history on myCourses (requires login)",
+    "access": "read",
+    "domain": "mycourses.dhamma.org",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [],
+    "columns": [
+      "dates",
+      "courseType",
+      "location",
+      "teacher"
+    ],
+    "type": "js",
+    "modulePath": "dhamma/history.js",
+    "sourceFile": "dhamma/history.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "dhamma",
+    "name": "locations",
+    "description": "Find dhamma.org regions, states and centres usable as `dhamma search` locations",
+    "access": "read",
+    "domain": "www.dhamma.org",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "query",
+        "type": "string",
+        "required": true,
+        "positional": true,
+        "help": "Name keyword, e.g. taiwan, medini, california"
+      },
+      {
+        "name": "kind",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Only one kind: region | state | location | sublocation"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Max rows (1-200)"
+      }
+    ],
+    "columns": [
+      "kind",
+      "id",
+      "name"
+    ],
+    "type": "js",
+    "modulePath": "dhamma/locations.js",
+    "sourceFile": "dhamma/locations.js"
+  },
+  {
+    "site": "dhamma",
+    "name": "messages",
+    "description": "Messages from course centres on myCourses, newest first (requires login)",
+    "access": "read",
+    "domain": "mycourses.dhamma.org",
+    "strategy": "cookie",
+    "browser": true,
+    "args": [
+      {
+        "name": "application",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Only messages for one application (contextId from `dhamma applications`)"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Max messages"
+      },
+      {
+        "name": "full",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "help": "Return the full message body instead of a 200-char excerpt"
+      }
+    ],
+    "columns": [
+      "id",
+      "date",
+      "title",
+      "body"
+    ],
+    "type": "js",
+    "modulePath": "dhamma/messages.js",
+    "sourceFile": "dhamma/messages.js",
+    "navigateBefore": false
+  },
+  {
+    "site": "dhamma",
+    "name": "search",
+    "description": "Search Vipassana courses on dhamma.org by place, dates, category, course type and language",
+    "access": "read",
+    "domain": "www.dhamma.org",
+    "strategy": "public",
+    "browser": false,
+    "args": [
+      {
+        "name": "location",
+        "type": "string",
+        "required": false,
+        "positional": true,
+        "help": "Region / state / centre name or id (e.g. Taiwan, California, region_69); comma-separate several. Omit for worldwide"
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "default": "new",
+        "required": false,
+        "help": "Student category: new | old | children | executives"
+      },
+      {
+        "name": "course-type",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Course type within the category, e.g. 10-Day, Satipatthana Sutta (see docs)"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Instruction language: code or English name (cmn/zh = Mandarin, yue = Cantonese, en, Hindi …)"
+      },
+      {
+        "name": "from",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Earliest start date YYYY-MM-DD (default today)"
+      },
+      {
+        "name": "to",
+        "type": "string",
+        "default": "",
+        "required": false,
+        "help": "Latest date YYYY-MM-DD (default from + 12 months)"
+      },
+      {
+        "name": "sort",
+        "type": "string",
+        "default": "dates",
+        "required": false,
+        "help": "Sort by: dates | course_type | location"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "required": false,
+        "help": "Max courses (1-100; dhamma.org serves at most 100 per search)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "start",
+      "end",
+      "courseType",
+      "center",
+      "location",
+      "country",
+      "languages",
+      "status",
+      "enrollmentOpens",
+      "url"
+    ],
+    "type": "js",
+    "modulePath": "dhamma/search.js",
+    "sourceFile": "dhamma/search.js"
+  },
+  {
     "site": "dianping",
     "name": "login",
     "description": "Open dianping login and wait until the browser session is authenticated",
