@@ -4,7 +4,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { extractSelectedRichGridContents, parseVideoItem } from './channel-helpers.js';
-import { parseYoutubeCount } from './utils.js';
+import { ensureYoutubeApiPage, parseYoutubeCount } from './utils.js';
 
 export { extractSelectedRichGridContents, parseVideoItem };
 
@@ -27,8 +27,7 @@ cli({
         }
         const channelId = /^UC[A-Za-z0-9_-]{22}$/.test(input) ? input : '@' + input.replace(/^@/, '');
         const limit = Math.min(kwargs.limit || 10, 30);
-        await page.goto('https://www.youtube.com');
-        await page.wait(2);
+        await ensureYoutubeApiPage(page);
         const data = await page.evaluate(`
       (async () => {
         const channelId = ${JSON.stringify(channelId)};

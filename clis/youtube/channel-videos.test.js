@@ -1,3 +1,4 @@
+import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { getRegistry } from '@jackwener/opencli/registry';
 import { ArgumentError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
@@ -71,7 +72,7 @@ describe('youtube channel-videos', () => {
             { rank: 2, video_id: 'b', title: 'B', duration: '1:00', views: '1.2M views | 1 year ago', views_count: 1200000, published: '1 year ago', url: 'https://www.youtube.com/watch?v=b', channel_id: 'UCHnyfMqiRRG1u-2MsSQLbXA' },
         ]);
         expect(Object.keys(rows[0]).sort()).toEqual([...command.columns].sort());
-        expect(String(page.evaluate.mock.calls[0][0])).toContain(JSON.stringify('@veritasium'));
+        expect(String(page.evaluate.mock.calls.at(-1)[0])).toContain(JSON.stringify('@veritasium'));
     });
 
     it('maps errors and empty channels', async () => {
@@ -80,5 +81,55 @@ describe('youtube channel-videos', () => {
         await expect(command.func(make({ error: 'YouTube config not found' }), { id: '@x', limit: 5 })).rejects.toBeInstanceOf(CommandExecutionError);
         await expect(command.func(make({ channelId: 'UC1', videos: [] }), { id: '@x', limit: 5 })).rejects.toBeInstanceOf(EmptyResultError);
         await expect(command.func(make(null), { id: '@x', limit: 0 })).rejects.toBeInstanceOf(ArgumentError);
+    });
+
+    it('reuses a warm youtube tab and throws EmptyResultError when a valid channel has no Videos tab', async () => {
+        const command = getRegistry().get('youtube/channel-videos');
+        const channelId = 'UC' + 'b'.repeat(22);
+        const dom = new JSDOM('', { url: 'https://www.youtube.com/@shorts_only', runScripts: 'outside-only' });
+        dom.window.ytcfg = { data_: { INNERTUBE_API_KEY: 'fixture', INNERTUBE_CONTEXT: { client: {} } } };
+        dom.window.fetch = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({
+                metadata: { channelMetadataRenderer: { externalId: channelId, title: 'Shorts Only' } },
+                contents: {
+                    twoColumnBrowseResultsRenderer: {
+                        tabs: [
+                            { tabRenderer: { title: 'Home', tabIdentifier: 'HOME', selected: true } },
+                            { tabRenderer: { title: 'Shorts', tabIdentifier: 'SHORTS' } },
+                        ],
+                    },
+                },
+            }),
+        }));
+        const page = { goto: vi.fn(), wait: vi.fn(), evaluate: vi.fn((script) => dom.window.eval(script)) };
+        try {
+            await expect(command.func(page, { id: channelId, limit: 5 })).rejects.toMatchObject({
+                name: 'EmptyResultError',
+                code: 'EMPTY_RESULT',
+                exitCode: 66,
+            });
+            expect(page.goto).not.toHaveBeenCalled();
+            expect(page.wait).not.toHaveBeenCalled();
+        } finally {
+            dom.window.close();
+        }
+    });
+
+    it('throws CommandExecutionError when channel browse payload has neither metadata nor tabs', async () => {
+        const command = getRegistry().get('youtube/channel-videos');
+        const channelId = 'UC' + 'c'.repeat(22);
+        const dom = new JSDOM('', { url: 'https://www.youtube.com/', runScripts: 'outside-only' });
+        dom.window.ytcfg = { data_: { INNERTUBE_API_KEY: 'fixture', INNERTUBE_CONTEXT: { client: {} } } };
+        dom.window.fetch = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({}),
+        }));
+        const page = { goto: vi.fn(), wait: vi.fn(), evaluate: vi.fn((script) => dom.window.eval(script)) };
+        try {
+            await expect(command.func(page, { id: channelId, limit: 5 })).rejects.toBeInstanceOf(CommandExecutionError);
+        } finally {
+            dom.window.close();
+        }
     });
 });

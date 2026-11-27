@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractJsonAssignmentFromHtml, extractSubscriptionChannel, prepareYoutubeApiPage, readYoutubeSapisid } from './utils.js';
+import { ensureYoutubeApiPage, extractJsonAssignmentFromHtml, extractSubscriptionChannel, prepareYoutubeApiPage, readYoutubeSapisid } from './utils.js';
 describe('youtube utils', () => {
     it('extractJsonAssignmentFromHtml parses bootstrap objects with nested braces in strings', () => {
         const html = `
@@ -33,6 +33,30 @@ describe('youtube utils', () => {
         await expect(prepareYoutubeApiPage(page)).resolves.toBeUndefined();
         expect(page.goto).toHaveBeenCalledWith('https://www.youtube.com', { waitUntil: 'none' });
         expect(page.wait).toHaveBeenCalledWith(2);
+    });
+    it('ensureYoutubeApiPage reuses a ready youtube tab without goto or wait', async () => {
+        const page = {
+            goto: vi.fn().mockResolvedValue(undefined),
+            wait: vi.fn().mockResolvedValue(undefined),
+            evaluate: vi.fn().mockResolvedValue({ session: 'site:youtube', data: true }),
+        };
+        await expect(ensureYoutubeApiPage(page)).resolves.toBeUndefined();
+        expect(page.goto).not.toHaveBeenCalled();
+        expect(page.wait).not.toHaveBeenCalled();
+    });
+    it('ensureYoutubeApiPage navigates and stops polling as soon as ytcfg becomes ready', async () => {
+        const page = {
+            goto: vi.fn().mockResolvedValue(undefined),
+            wait: vi.fn().mockResolvedValue(undefined),
+            evaluate: vi.fn()
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(true),
+        };
+        await expect(ensureYoutubeApiPage(page)).resolves.toBeUndefined();
+        expect(page.goto).toHaveBeenCalledWith('https://www.youtube.com');
+        expect(page.wait).toHaveBeenCalledTimes(1);
+        expect(page.wait).toHaveBeenCalledWith(0.2);
     });
     it('readYoutubeSapisid reads URL-scoped cookies and prefers secure SAPISID', async () => {
         const page = {

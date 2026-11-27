@@ -91,6 +91,36 @@ export async function prepareYoutubeApiPage(page) {
     await page.wait(2);
 }
 /**
+ * Ensure the current tab is on youtube.com with InnerTube bootstrap config
+ * (`window.ytcfg.data_.INNERTUBE_API_KEY` & `INNERTUBE_CONTEXT`) ready.
+ * Reuses an already-ready YouTube tab without reloading the homepage or
+ * sleeping a fixed 2 seconds.
+ */
+export async function ensureYoutubeApiPage(page) {
+    const isReady = async () => {
+        try {
+            const res = await page.evaluate(`(() => {
+            const host = location.hostname || '';
+            const onYoutube = host === 'youtube.com' || host.endsWith('.youtube.com');
+            const cfg = window.ytcfg?.data_;
+            return Boolean(onYoutube && cfg?.INNERTUBE_API_KEY && cfg?.INNERTUBE_CONTEXT);
+        })()`);
+            return res === true || res?.data === true;
+        }
+        catch {
+            return false;
+        }
+    };
+    if (await isReady())
+        return;
+    await page.goto('https://www.youtube.com');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+        if (await isReady())
+            return;
+        await page.wait(0.2);
+    }
+}
+/**
  * Inline InnerTube browse API helper for use inside page.evaluate() strings.
  * Inject via FETCH_BROWSE_FN, then call: fetchBrowse(apiKey, body)
  */
