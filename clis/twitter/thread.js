@@ -1,7 +1,15 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { BROWSER_JSON_SNIFF_FN, throwIfLoginWall } from '@jackwener/opencli/utils';
-import { extractAuthorAvatar, extractMedia, extractCard, extractQuotedTweet, describeTwitterApiError } from './shared.js';
+import {
+    extractAuthorAvatar,
+    extractMedia,
+    extractCard,
+    extractQuotedTweet,
+    describeTwitterApiError,
+    resolveTwitterOperationMetadata,
+    unwrapBrowserResult,
+} from './shared.js';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
 // ── Twitter GraphQL constants ──────────────────────────────────────────
 const TWEET_DETAIL_QUERY_ID = 'nBS-WpgA6ZG0CyNHD517JQ';
@@ -19,7 +27,12 @@ const FEATURES = {
     freedom_of_speech_not_reach_fetch_enabled: true,
 };
 const FIELD_TOGGLES = { withArticleRichContentState: true, withArticlePlainText: false };
-function buildTweetDetailUrl(tweetId, cursor) {
+const TWEET_DETAIL_OPERATION = {
+    queryId: TWEET_DETAIL_QUERY_ID,
+    features: FEATURES,
+    fieldToggles: FIELD_TOGGLES,
+};
+function buildTweetDetailUrl(tweetId, cursor, operation = TWEET_DETAIL_OPERATION) {
     const vars = {
         focalTweetId: tweetId,
         referrer: 'tweet',
@@ -33,10 +46,13 @@ function buildTweetDetailUrl(tweetId, cursor) {
     };
     if (cursor)
         vars.cursor = cursor;
-    return `/i/api/graphql/${TWEET_DETAIL_QUERY_ID}/TweetDetail`
+    const queryId = operation?.queryId || TWEET_DETAIL_QUERY_ID;
+    const features = { ...FEATURES, ...(operation?.features || {}) };
+    const fieldToggles = { ...FIELD_TOGGLES, ...(operation?.fieldToggles || {}) };
+    return `https://x.com/i/api/graphql/${queryId}/TweetDetail`
         + `?variables=${encodeURIComponent(JSON.stringify(vars))}`
-        + `&features=${encodeURIComponent(JSON.stringify(FEATURES))}`
-        + `&fieldToggles=${encodeURIComponent(JSON.stringify(FIELD_TOGGLES))}`;
+        + `&features=${encodeURIComponent(JSON.stringify(features))}`
+        + `&fieldToggles=${encodeURIComponent(JSON.stringify(fieldToggles))}`;
 }
 function extractTweet(r, seen) {
     if (!r)
@@ -106,6 +122,7 @@ function parseTweetDetail(data, seen) {
 
 export const __test__ = {
     parseTweetDetail,
+    buildTweetDetailUrl,
 };
 // ── CLI definition ────────────────────────────────────────────────────
 cli({
@@ -133,6 +150,15 @@ cli({
         const ct0 = cookies.find((c) => c.name === 'ct0')?.value || null;
         if (!ct0)
             throw new AuthRequiredError('x.com', 'Not logged into x.com (no ct0 cookie)');
+        // Ensure we are on the x.com origin before resolving bundles or issuing
+        // authenticated same-origin GraphQL requests (a reused/reset tab can sit
+        // on about:blank, where relative fetches throw `Failed to parse URL` and
+        // cross-origin fetches fail CORS).
+        const origin = unwrapBrowserResult(await page.evaluate('window.location.origin'));
+        if (origin !== 'https://x.com') {
+            await page.goto('https://x.com', { waitUntil: 'load', settleMs: 1000 });
+        }
+        const operation = await resolveTwitterOperationMetadata(page, 'TweetDetail', TWEET_DETAIL_OPERATION);
         // Build auth headers in TypeScript
         const headers = JSON.stringify({
             'Authorization': `Bearer ${decodeURIComponent(TWITTER_BEARER_TOKEN)}`,
@@ -145,13 +171,13 @@ cli({
         const seen = new Set();
         let cursor = null;
         for (let i = 0; i < 5; i++) {
-            const apiUrl = buildTweetDetailUrl(tweetId, cursor);
+            const apiUrl = buildTweetDetailUrl(tweetId, cursor, operation);
             // Browser-side: fetch + JSON parse with HTML-as-JSON sniffer so a
             // login wall / WAF page surfaces as a structured LoginWallError
             // instead of `SyntaxError: Unexpected token '<'`.
             const data = throwIfLoginWall(await page.evaluate(`async () => {
         ${BROWSER_JSON_SNIFF_FN}
-        return await fetchJsonOrLoginWall("${apiUrl}", { headers: ${headers}, credentials: 'include' });
+        return await fetchJsonOrLoginWall(${JSON.stringify(apiUrl)}, { headers: ${headers}, credentials: 'include' });
       }`), { url: apiUrl });
             if (data?.error) {
                 if (allTweets.length === 0)
