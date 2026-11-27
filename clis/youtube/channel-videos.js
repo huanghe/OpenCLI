@@ -10,7 +10,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { extractSelectedRichGridContents, parseVideoItem } from './channel-helpers.js';
-import { ensureYoutubeApiPage, FETCH_BROWSE_FN, parseYoutubeCount, RESOLVE_CHANNEL_HANDLE_FN } from './utils.js';
+import { ensureYoutubeApiPage, FETCH_BROWSE_FN, parseYoutubeCount, RESOLVE_CHANNEL_HANDLE_FN, throwYoutubeApiError } from './utils.js';
 
 const MAX_LIMIT = 200;
 const MAX_PAGES = 10;
@@ -131,7 +131,7 @@ cli({
       })()
     `);
         if (!data || typeof data !== 'object') throw new CommandExecutionError('Failed to fetch channel videos');
-        if (data.error) throw new CommandExecutionError(String(data.error));
+        throwYoutubeApiError(data);
         const videos = Array.isArray(data.videos) ? data.videos : [];
         if (videos.length === 0) {
             const hint = data.noVideosTab

@@ -19,6 +19,7 @@ const {
     looksLikePrivateTwitterTimeline,
     parseOperationFromBundleText,
     describeTwitterApiError,
+    createTwitterApiError,
 } = __test__;
 
 function makeCardTweet({ name, bindings, expandedUrl, urls }) {
@@ -1109,6 +1110,38 @@ describe('describeTwitterApiError', () => {
             expect(msg).toMatch(/^HTTP \d+: /);
             expect(msg).toContain(`HTTP ${code}:`);
         }
+    });
+});
+
+describe('createTwitterApiError', () => {
+    it('maps HTTP 429 to RateLimitError (RATE_LIMITED / exit 75)', () => {
+        const err = createTwitterApiError('SearchTimeline', 429, undefined, { retryAfter: '90' });
+        expect(err).toMatchObject({
+            name: 'RateLimitError',
+            code: 'RATE_LIMITED',
+            exitCode: 75,
+            status: 429,
+            retryAfterSeconds: 90,
+        });
+        expect(err.message).toContain('HTTP 429: SearchTimeline');
+    });
+
+    it('maps HTTP 5xx to TransientNetworkError (NETWORK_ERROR / exit 75)', () => {
+        const err = createTwitterApiError('TweetDetail', 503);
+        expect(err).toMatchObject({
+            name: 'TransientNetworkError',
+            code: 'NETWORK_ERROR',
+            exitCode: 75,
+        });
+    });
+
+    it('maps other HTTP statuses to CommandExecutionError (COMMAND_EXEC / exit 1)', () => {
+        const err = createTwitterApiError('TweetDetail', 400);
+        expect(err).toMatchObject({
+            name: 'CommandExecutionError',
+            code: 'COMMAND_EXEC',
+            exitCode: 1,
+        });
     });
 });
 

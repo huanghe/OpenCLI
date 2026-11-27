@@ -3,7 +3,7 @@
  * Navigates to /playlist?list=WL and reads ytInitialData directly.
  */
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { FETCH_BROWSE_FN, extractPlaylistVideos } from './utils.js';
+import { FETCH_BROWSE_FN, extractPlaylistVideos, throwYoutubeApiError } from './utils.js';
 import { CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 
 cli({
@@ -64,9 +64,7 @@ cli({
         if (!data || typeof data !== 'object') {
             throw new CommandExecutionError('Failed to fetch Watch Later — make sure you are logged into YouTube');
         }
-        if (data.error) {
-            throw new CommandExecutionError(String(data.error));
-        }
+        throwYoutubeApiError(data);
         if (!data.videos?.length) {
             throw new EmptyResultError('youtube watch-later');
         }

@@ -2,7 +2,7 @@ import { cli, Strategy } from '@jackwener/opencli/registry';
 import { AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { BROWSER_JSON_SNIFF_FN, throwIfLoginWall } from '@jackwener/opencli/utils';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
-import { extractAuthorAvatar, extractCard, extractQuotedTweet, extractMedia, describeTwitterApiError } from './shared.js';
+import { extractAuthorAvatar, extractCard, extractQuotedTweet, extractMedia, createTwitterApiError } from './shared.js';
 
 const LIST_TWEETS_QUERY_ID = 'RlZzktZY_9wJynoepm8ZsA';
 const OPERATION_NAME = 'ListLatestTweetsTimeline';
@@ -188,7 +188,7 @@ cli({
             }`), { url: apiUrl });
             if (data?.error) {
                 if (allTweets.length === 0)
-                    throw new CommandExecutionError(describeTwitterApiError('ListLatestTweetsTimeline', data.error, 'list may be private'));
+                    throw createTwitterApiError('ListLatestTweetsTimeline', data.error, 'list may be private', { retryAfter: data.retryAfter });
                 break;
             }
             const { tweets, nextCursor } = parseListTimeline(data, seen);

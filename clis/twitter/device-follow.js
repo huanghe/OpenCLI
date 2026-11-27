@@ -11,7 +11,7 @@
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
-import { describeTwitterApiError } from './shared.js';
+import { createTwitterApiError } from './shared.js';
 
 const DEVICE_FOLLOW_PATH = '/i/api/2/notifications/device_follow.json';
 const MAX_LIMIT = 200;
@@ -166,7 +166,7 @@ cli({
             if (data.error === 401 || data.error === 403) {
                 throw new AuthRequiredError('x.com', `Twitter device-follow returned HTTP ${data.error}`);
             }
-            throw new CommandExecutionError(describeTwitterApiError('device_follow', data.error));
+            throw createTwitterApiError('device_follow', data.error);
         }
         const parsed = parseDeviceFollow(data, new Set());
         if (!parsed) {

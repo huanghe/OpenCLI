@@ -9,6 +9,9 @@ import {
   TimeoutError,
   ArgumentError,
   EmptyResultError,
+  RateLimitError,
+  TransientNetworkError,
+  isTransientFetchMessage,
   selectorError,
   toEnvelope,
 } from './errors.js';
@@ -24,6 +27,8 @@ describe('Error type hierarchy', () => {
       new TimeoutError('test', 30),
       new ArgumentError('test'),
       new EmptyResultError('test/cmd'),
+      new RateLimitError('HTTP 429'),
+      new TransientNetworkError('Failed to fetch'),
       selectorError('.btn'),
     ];
 
@@ -77,6 +82,32 @@ describe('Error type hierarchy', () => {
   it('BrowserConnectError has correct code', () => {
     const err = new BrowserConnectError('Cannot connect');
     expect(err.code).toBe('BROWSER_CONNECT');
+  });
+
+  it('RateLimitError and TransientNetworkError map to TEMPFAIL (exit 75)', () => {
+    const rl = new RateLimitError('HTTP 429: SearchTimeline fetch failed', { retryAfterSeconds: 60 });
+    expect(toEnvelope(rl).error).toMatchObject({
+      code: 'RATE_LIMITED',
+      exitCode: 75,
+    });
+    expect(rl.status).toBe(429);
+    expect(rl.retryAfterSeconds).toBe(60);
+
+    const net = new TransientNetworkError('TypeError: Failed to fetch', { url: 'https://x.com/api' });
+    expect(toEnvelope(net).error).toMatchObject({
+      code: 'NETWORK_ERROR',
+      exitCode: 75,
+    });
+    expect(net.url).toBe('https://x.com/api');
+  });
+
+  it('isTransientFetchMessage matches transient fetch failures and excludes URL parse errors', () => {
+    expect(isTransientFetchMessage('TypeError: Failed to fetch')).toBe(true);
+    expect(isTransientFetchMessage('TypeError: Load failed')).toBe(true);
+    expect(isTransientFetchMessage('TypeError: NetworkError when attempting to fetch resource.')).toBe(true);
+    expect(isTransientFetchMessage('TypeError: Failed to parse URL from /i/api/graphql/abc/TweetDetail')).toBe(false);
+    expect(isTransientFetchMessage('TypeError: Invalid URL')).toBe(false);
+    expect(isTransientFetchMessage('SyntaxError: Unexpected token')).toBe(false);
   });
 });
 

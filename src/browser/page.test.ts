@@ -587,3 +587,24 @@ describe('daemon-backed native input visibility', () => {
     expect(sendCommandMock.mock.calls.some(([action]) => action === 'cdp')).toBe(false);
   });
 });
+
+describe('Page.evaluate transient network classification', () => {
+  beforeEach(() => { sendCommandMock.mockReset(); });
+
+  it('wraps uncaught browser TypeError: Failed to fetch as TransientNetworkError (exit 75)', async () => {
+    sendCommandMock.mockRejectedValueOnce(new Error('TypeError: Failed to fetch'));
+    const page = new Page('site:twitter');
+    await expect(page.evaluate('fetch("https://x.com/i/api")')).rejects.toMatchObject({
+      name: 'TransientNetworkError',
+      code: 'NETWORK_ERROR',
+      exitCode: 75,
+    });
+  });
+
+  it('does not misclassify URL-parsing TypeErrors as transient network errors', async () => {
+    const parseErr = new Error('TypeError: Failed to parse URL from /i/api/graphql/abc/TweetDetail');
+    sendCommandMock.mockRejectedValueOnce(parseErr);
+    const page = new Page('site:twitter');
+    await expect(page.evaluate('fetch("/i/api/graphql/abc/TweetDetail")')).rejects.toBe(parseErr);
+  });
+});

@@ -1,3 +1,5 @@
+import { CommandExecutionError, RateLimitError, TransientNetworkError } from '@jackwener/opencli/errors';
+
 /**
  * Extract a YouTube video ID from a URL or bare video ID string.
  * Supports: watch?v=, youtu.be/, /shorts/, /embed/, /live/, /v/
@@ -123,19 +125,74 @@ export async function ensureYoutubeApiPage(page) {
 /**
  * Inline InnerTube browse API helper for use inside page.evaluate() strings.
  * Inject via FETCH_BROWSE_FN, then call: fetchBrowse(apiKey, body)
+ *
+ * Retries once with a short backoff on transient fetch TypeErrors (e.g.
+ * `TypeError: Failed to fetch`) and returns a structured sentinel / HTTP status
+ * so Node-side callers can classify TEMPFAIL (exit 75) vs generic errors.
  */
 export const FETCH_BROWSE_FN = `
-async function fetchBrowse(apiKey, body) {
-  const resp = await fetch('/youtubei/v1/browse?key=' + apiKey + '&prettyPrint=false', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) return { error: 'InnerTube browse API returned HTTP ' + resp.status };
+async function fetchBrowse(apiKey, body, opts) {
+  const isTransientNetErr = (err) => {
+    if (!err || err.name === 'AbortError') return false;
+    const msg = String(err && err.message ? err.message : err);
+    if (/Failed to parse URL|Invalid URL/i.test(msg)) return false;
+    return err.name === 'TypeError' && /\\b(?:Failed to fetch|NetworkError|Load failed|fetch failed)\\b/i.test(msg);
+  };
+  let resp;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      resp = await fetch('/youtubei/v1/browse?key=' + apiKey + '&prettyPrint=false', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      break;
+    } catch (err) {
+      if (!isTransientNetErr(err)) throw err;
+      if (attempt === 0) {
+        const delayMs = opts && typeof opts.retryDelayMs === 'number'
+          ? opts.retryDelayMs
+          : 500 + Math.floor(Math.random() * 300);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      return {
+        __networkError: true,
+        error: String(err && err.message ? err.message : err),
+        status: 0,
+      };
+    }
+  }
+  if (!resp.ok) return { error: 'InnerTube browse API returned HTTP ' + resp.status, status: resp.status };
   return resp.json();
 }
 `;
+
+/**
+ * Throw a typed CliError when a YouTube browser-evaluate payload reports an
+ * error or network sentinel:
+ *   - `__networkError` or 5xx → TransientNetworkError (NETWORK_ERROR / exit 75)
+ *   - 429                     → RateLimitError (RATE_LIMITED / exit 75)
+ *   - other `error`           → CommandExecutionError (COMMAND_EXEC / exit 1)
+ */
+export function throwYoutubeApiError(data) {
+    if (!data || typeof data !== 'object')
+        return;
+    if (data.__networkError) {
+        throw new TransientNetworkError(String(data.error || data.message || 'YouTube network fetch failed'));
+    }
+    if (!data.error)
+        return;
+    const status = Number(data.status);
+    if (status === 429) {
+        throw new RateLimitError(String(data.error), { status: 429 });
+    }
+    if (status >= 500 && status < 600) {
+        throw new TransientNetworkError(String(data.error));
+    }
+    throw new CommandExecutionError(String(data.error));
+}
 /**
  * Extract video objects from playlistVideoRenderer items (playlists, watch-later).
  * Pure function — inject into page.evaluate() via: extractPlaylistVideos.toString()
@@ -218,14 +275,32 @@ export function extractSubscriptionChannel(channelRenderer) {
  * Inject via RESOLVE_CHANNEL_HANDLE_FN, then call: resolveChannelHandle(input, apiKey, context)
  */
 export const RESOLVE_CHANNEL_HANDLE_FN = `
-async function resolveChannelHandle(input, apiKey, context) {
+async function resolveChannelHandle(input, apiKey, context, opts) {
   if (!input.startsWith('@')) return input;
-  const resp = await fetch('/youtubei/v1/navigation/resolve_url?key=' + apiKey + '&prettyPrint=false', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context, url: 'https://www.youtube.com/' + input }),
-  });
+  const isTransientNetErr = (err) => {
+    if (!err || err.name === 'AbortError') return false;
+    const msg = String(err && err.message ? err.message : err);
+    if (/Failed to parse URL|Invalid URL/i.test(msg)) return false;
+    return err.name === 'TypeError' && /\\b(?:Failed to fetch|NetworkError|Load failed|fetch failed)\\b/i.test(msg);
+  };
+  let resp;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      resp = await fetch('/youtubei/v1/navigation/resolve_url?key=' + apiKey + '&prettyPrint=false', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context, url: 'https://www.youtube.com/' + input }),
+      });
+      break;
+    } catch (err) {
+      if (!isTransientNetErr(err) || attempt === 1) throw err;
+      const delayMs = opts && typeof opts.retryDelayMs === 'number'
+        ? opts.retryDelayMs
+        : 500 + Math.floor(Math.random() * 300);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
   if (!resp.ok) return input;
   const data = await resp.json().catch(() => ({}));
   return data.endpoint?.browseEndpoint?.browseId || input;

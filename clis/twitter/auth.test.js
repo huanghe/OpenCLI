@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
+import { AuthRequiredError, CommandExecutionError, RateLimitError, TransientNetworkError } from '@jackwener/opencli/errors';
 import { getRegistry } from '@jackwener/opencli/registry';
 import './auth.js';
 
@@ -92,9 +92,9 @@ describe('twitter whoami command', () => {
     });
 
     it('typed-fails other lookup errors instead of reporting logged out', async () => {
-        const page = createPageMock({ error: 500 });
-
-        await expect(whoamiCommand().func(page)).rejects.toBeInstanceOf(CommandExecutionError);
+        await expect(whoamiCommand().func(createPageMock({ error: 500 }))).rejects.toBeInstanceOf(TransientNetworkError);
+        await expect(whoamiCommand().func(createPageMock({ error: 429 }))).rejects.toBeInstanceOf(RateLimitError);
+        await expect(whoamiCommand().func(createPageMock({ error: 400 }))).rejects.toBeInstanceOf(CommandExecutionError);
     });
 
     it('does not accept a lookup without a valid screen_name', async () => {

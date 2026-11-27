@@ -2,7 +2,7 @@
  * YouTube video metadata — fetch watch HTML and parse bootstrap data without opening the watch UI.
  */
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { extractJsonAssignmentFromHtml, FETCH_BROWSE_FN, parseVideoId, prepareYoutubeApiPage } from './utils.js';
+import { extractJsonAssignmentFromHtml, FETCH_BROWSE_FN, parseVideoId, prepareYoutubeApiPage, throwYoutubeApiError } from './utils.js';
 import { CommandExecutionError } from '@jackwener/opencli/errors';
 
 function unwrapBrowserResult(value) {
@@ -17,9 +17,7 @@ function requireVideoPayload(value) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         throw new CommandExecutionError('Failed to extract video metadata from page');
     }
-    if (payload.error) {
-        throw new CommandExecutionError(String(payload.error));
-    }
+    throwYoutubeApiError(payload);
     if (typeof payload.playabilityStatus !== 'string') {
         throw new CommandExecutionError('YouTube video metadata is missing playabilityStatus');
     }

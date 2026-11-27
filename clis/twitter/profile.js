@@ -1,6 +1,6 @@
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { describeTwitterApiError, extractAuthorAvatar, normalizeTwitterScreenName, resolveLoggedInTwitterUser, resolveTwitterOperationMetadata, unwrapBrowserResult } from './shared.js';
+import { createTwitterApiError, describeTwitterApiError, extractAuthorAvatar, normalizeTwitterScreenName, resolveLoggedInTwitterUser, resolveTwitterOperationMetadata, unwrapBrowserResult } from './shared.js';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 const USER_BY_SCREEN_NAME_QUERY_ID = 'IGgvgiOx4QZndDHuD3x9TQ';
 const USER_BY_SCREEN_NAME_FEATURES = {
@@ -169,6 +169,9 @@ cli({
             }
             if (rawResult.notFound) {
                 throw new EmptyResultError('twitter profile', message);
+            }
+            if (typeof rawResult.httpStatus === 'number') {
+                throw createTwitterApiError('UserByScreenName', rawResult.httpStatus, rawResult.hint);
             }
             throw new CommandExecutionError(message);
         }

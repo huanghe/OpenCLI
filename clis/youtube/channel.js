@@ -4,7 +4,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { extractSelectedRichGridContents, parseVideoItem } from './channel-helpers.js';
-import { ensureYoutubeApiPage, parseYoutubeCount } from './utils.js';
+import { ensureYoutubeApiPage, FETCH_BROWSE_FN, parseYoutubeCount, throwYoutubeApiError } from './utils.js';
 
 export { extractSelectedRichGridContents, parseVideoItem };
 
@@ -39,16 +39,33 @@ cli({
         const extractSelectedRichGridContents = ${extractSelectedRichGridContents.toString()};
         const parseVideoItem = ${parseVideoItem.toString()};
         const parseYoutubeCount = ${parseYoutubeCount.toString()};
+        ${FETCH_BROWSE_FN}
 
         // Resolve handle to browseId if needed
         let browseId = channelId;
         if (channelId.startsWith('@')) {
-          const resolveResp = await fetch('/youtubei/v1/navigation/resolve_url?key=' + apiKey + '&prettyPrint=false', {
-            method: 'POST', credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({context, url: 'https://www.youtube.com/@' + encodeURIComponent(channelId.slice(1))})
-          });
-          if (!resolveResp.ok) return {error: 'Channel handle resolution returned HTTP ' + resolveResp.status};
+          let resolveResp;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              resolveResp = await fetch('/youtubei/v1/navigation/resolve_url?key=' + apiKey + '&prettyPrint=false', {
+                method: 'POST', credentials: 'include',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({context, url: 'https://www.youtube.com/@' + encodeURIComponent(channelId.slice(1))})
+              });
+              break;
+            } catch (err) {
+              const msg = String(err && err.message ? err.message : err);
+              const transient = err && err.name === 'TypeError' && !/Failed to parse URL|Invalid URL/i.test(msg)
+                && /\\b(?:Failed to fetch|NetworkError|Load failed|fetch failed)\\b/i.test(msg);
+              if (!transient) throw err;
+              if (attempt === 0) {
+                await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 300)));
+                continue;
+              }
+              return { __networkError: true, error: msg, status: 0 };
+            }
+          }
+          if (!resolveResp.ok) return {error: 'Channel handle resolution returned HTTP ' + resolveResp.status, status: resolveResp.status};
           const resolveData = await resolveResp.json();
           browseId = resolveData.endpoint?.browseEndpoint?.browseId;
           if (typeof browseId !== 'string' || !/^UC[A-Za-z0-9_-]{22}$/.test(browseId)) {
@@ -57,13 +74,8 @@ cli({
         }
 
         // Fetch channel data
-        const resp = await fetch('/youtubei/v1/browse?key=' + apiKey + '&prettyPrint=false', {
-          method: 'POST', credentials: 'include',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({context, browseId})
-        });
-        if (!resp.ok) return {error: 'Channel API returned HTTP ' + resp.status};
-        const data = await resp.json();
+        const data = await fetchBrowse(apiKey, {context, browseId});
+        if (data.error || data.__networkError) return data;
 
         // Channel metadata
         const metadata = data.metadata?.channelMetadataRenderer || {};
@@ -163,8 +175,7 @@ cli({
     `);
         if (!data || typeof data !== 'object')
             throw new CommandExecutionError('Failed to fetch channel data');
-        if (data.error)
-            throw new CommandExecutionError(String(data.error));
+        throwYoutubeApiError(data);
         const result = data;
         const videos = result.recentVideos;
         delete result.recentVideos;

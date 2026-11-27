@@ -6,7 +6,7 @@ import {
     extractMedia,
     extractCard,
     extractQuotedTweet,
-    describeTwitterApiError,
+    createTwitterApiError,
     resolveTwitterOperationMetadata,
     unwrapBrowserResult,
 } from './shared.js';
@@ -181,7 +181,7 @@ cli({
       }`), { url: apiUrl });
             if (data?.error) {
                 if (allTweets.length === 0)
-                    throw new CommandExecutionError(describeTwitterApiError('TweetDetail', data.error));
+                    throw createTwitterApiError('TweetDetail', data.error, undefined, { retryAfter: data.retryAfter });
                 break;
             }
             // TypeScript-side: type-safe parsing + cursor extraction

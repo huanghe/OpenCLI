@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { buildUserByScreenNameQueryUrl, looksLikePrivateTwitterTimeline, normalizeTwitterScreenName, resolveLoggedInTwitterUser, resolveTwitterQueryId, sanitizeQueryId, extractMedia, unwrapBrowserResult, describeTwitterApiError } from './shared.js';
+import { buildUserByScreenNameQueryUrl, looksLikePrivateTwitterTimeline, normalizeTwitterScreenName, resolveLoggedInTwitterUser, resolveTwitterQueryId, sanitizeQueryId, extractMedia, unwrapBrowserResult, createTwitterApiError } from './shared.js';
 import { DEFAULT_MAX_PAGINATION_PAGES, appendJsonlRows, ensureParentDir, loadJsonlArchiveState, removeResumeFile, resolveMaxPages, resolveOptionalFilePath } from './archive.js';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
 const LIKES_QUERY_ID = 'CDWHmpZeSdIJ3HGeRbNm0w';
@@ -301,7 +301,7 @@ cli({
       }`));
             if (data?.error) {
                 if ((useOutputFile ? outputCount : allTweets.length) === 0)
-                    throw new CommandExecutionError(describeTwitterApiError('Likes', data.error));
+                    throw createTwitterApiError('Likes', data.error);
                 break;
             }
             lastRawResponse = data;

@@ -1,6 +1,6 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { buildUserByScreenNameQueryUrl, emitPrivateFollowing, looksLikePrivateTwitterTimeline, normalizeTwitterScreenName, resolveLoggedInTwitterUser, resolveTwitterQueryId, sanitizeQueryId, unwrapBrowserResult, describeTwitterApiError } from './shared.js';
+import { buildUserByScreenNameQueryUrl, emitPrivateFollowing, looksLikePrivateTwitterTimeline, normalizeTwitterScreenName, resolveLoggedInTwitterUser, resolveTwitterQueryId, sanitizeQueryId, unwrapBrowserResult, createTwitterApiError } from './shared.js';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 
 const FOLLOWING_QUERY_ID = 'F42cDX8PDFxkbjjq6JrM2w';
@@ -203,7 +203,7 @@ cli({
             if (data?.error) {
                 if (data.error === 401 || data.error === 403)
                     throw new AuthRequiredError('x.com', `Twitter following request failed (HTTP ${data.error})`);
-                throw new CommandExecutionError(describeTwitterApiError('Following', data.error));
+                throw createTwitterApiError('Following', data.error);
             }
             lastRawResponse = data;
             const { users, nextCursor } = parseFollowing(data);
