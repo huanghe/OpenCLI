@@ -1,9 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { DEFAULT_DAEMON_PORT } from '../constants.js';
 import { BrowserConnectError } from '../errors.js';
+import { isPidAlive } from '../session-lease.js';
 import { PKG_VERSION } from '../version.js';
 import { waitForBridgeReady } from './bridge-readiness.js';
 import { isDaemonStale } from './daemon-version.js';
@@ -67,10 +69,96 @@ export async function waitForDaemonStatus(timeoutMs: number): Promise<DaemonStat
   return null;
 }
 
+const DAEMON_START_LOCK_STALE_MS = 15_000;
+
+function defaultDaemonStartLockPath(): string {
+  const baseDir = process.env.OPENCLI_CONFIG_DIR || path.join(os.homedir(), '.opencli');
+  return path.join(baseDir, 'daemon-start.lock');
+}
+
+/**
+ * Cross-process file lock serializing daemon stop/spawn across concurrent CLI
+ * cold starts so two processes do not race to SIGKILL / spawn each other's
+ * daemon.
+ *
+ * Returns a release callback when acquired, or `null` when another live CLI
+ * process currently holds a fresh lock (the caller should skip stop/spawn and
+ * wait via `waitForBridgeReady`). On non-contention FS errors (e.g. read-only
+ * home), fails open with a no-op release callback.
+ */
+export function acquireDaemonStartLock(opts: {
+  lockPath?: string;
+  staleMs?: number;
+  now?: () => number;
+  isProcessAlive?: (pid: number) => boolean;
+} = {}): (() => void) | null {
+  const lockPath = opts.lockPath ?? defaultDaemonStartLockPath();
+  const staleMs = opts.staleMs ?? DAEMON_START_LOCK_STALE_MS;
+  const now = opts.now ?? Date.now;
+  const checkAlive = opts.isProcessAlive ?? isPidAlive;
+
+  const tryCreate = (): (() => void) | 'exists' | 'fs-error' => {
+    try {
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      const fd = fs.openSync(lockPath, 'wx');
+      try {
+        fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: now() }));
+      } finally {
+        fs.closeSync(fd);
+      }
+      return () => {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {
+          // Best-effort cleanup.
+        }
+      };
+    } catch (err) {
+      return (err as NodeJS.ErrnoException)?.code === 'EEXIST' ? 'exists' : 'fs-error';
+    }
+  };
+
+  const first = tryCreate();
+  if (typeof first === 'function') return first;
+  if (first === 'fs-error') return () => {};
+
+  // Contended: inspect whether the existing lock is stale (dead PID or expired).
+  let isStaleLock = false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as { pid?: unknown; createdAt?: unknown };
+    const pid = typeof raw.pid === 'number' ? raw.pid : null;
+    const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : 0;
+    const expired = now() - createdAt > staleMs;
+    const deadOwner = pid !== null && !checkAlive(pid);
+    isStaleLock = expired || deadOwner || pid === null;
+  } catch {
+    // Unreadable/half-written lock: check mtime so we don't steal an actively writing lock.
+    try {
+      const stat = fs.statSync(lockPath);
+      isStaleLock = now() - stat.mtimeMs > staleMs;
+    } catch {
+      isStaleLock = true;
+    }
+  }
+
+  if (!isStaleLock) return null;
+
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {
+    // Another contender may have removed it first; retry create below.
+  }
+  const second = tryCreate();
+  if (typeof second === 'function') return second;
+  if (second === 'fs-error') return () => {};
+  return null;
+}
+
 export const daemonLifecycleHooks = {
   requestDaemonShutdown,
   spawnDaemonProcess,
   waitForDaemonStop,
+  acquireDaemonStartLock,
 };
 
 export async function restartDaemon(opts: { stopTimeoutMs?: number; startTimeoutMs?: number } = {}): Promise<DaemonRestartResult> {
@@ -101,54 +189,59 @@ export async function ensureBrowserBridgeReady(
   const health = await getDaemonHealth({ contextId, preferredContextId });
   const daemonVersion = health.status?.daemonVersion;
   const isStale = isDaemonStale(health.status, PKG_VERSION);
-  let staleDaemonReplaced = false;
 
-  if (isStale) {
-    const reason = daemonVersion
-      ? `v${daemonVersion} ≠ v${PKG_VERSION}`
-      : `pre-version daemon, CLI is v${PKG_VERSION}`;
-    if (verbose && (process.env.OPENCLI_VERBOSE || process.stderr.isTTY)) {
-      process.stderr.write(`⚠️  Stale daemon detected (${reason}). Restarting...\n`);
-    }
-    const shutdownAccepted = await daemonLifecycleHooks.requestDaemonShutdown();
-    let portReleased = shutdownAccepted && await daemonLifecycleHooks.waitForDaemonStop(3000);
-
-    if (!portReleased) {
-      const stalePid = health.status?.pid;
-      if (typeof stalePid === 'number' && Number.isInteger(stalePid) && stalePid > 0) {
-        try {
-          process.kill(stalePid, 'SIGKILL');
-        } catch {
-          // EPERM / ESRCH are both resolved by polling the fixed daemon port.
-        }
-        portReleased = await daemonLifecycleHooks.waitForDaemonStop(2000);
-      }
-    }
-
-    if (!portReleased) {
-      throw new BrowserConnectError(
-        'Stale daemon could not be replaced',
-        `A stale daemon (${reason}) is running but did not shut down (graceful + SIGKILL both failed).\n` +
-        '  Run manually: opencli daemon stop',
-        'daemon-not-running',
-      );
-    }
-    staleDaemonReplaced = true;
-  }
-
-  if (!staleDaemonReplaced && health.state === 'ready') {
+  if (!isStale && health.state === 'ready') {
     return health;
   }
 
-  if (!staleDaemonReplaced && health.state === 'profile-required') {
+  if (!isStale && health.state === 'profile-required') {
     throw browserConnectErrorFromHealth(health, contextId);
   }
 
-  if (staleDaemonReplaced || health.state === 'stopped') {
-    if (verbose && (process.env.OPENCLI_VERBOSE || process.stderr.isTTY)) {
-      process.stderr.write('⏳ Starting daemon...\n');
+  if (isStale || health.state === 'stopped') {
+    const releaseLock = daemonLifecycleHooks.acquireDaemonStartLock();
+    if (releaseLock) {
+      try {
+        if (isStale) {
+          const reason = daemonVersion
+            ? `v${daemonVersion} ≠ v${PKG_VERSION}`
+            : `pre-version daemon, CLI is v${PKG_VERSION}`;
+          if (verbose && (process.env.OPENCLI_VERBOSE || process.stderr.isTTY)) {
+            process.stderr.write(`⚠️  Stale daemon detected (${reason}). Restarting...\n`);
+          }
+          const shutdownAccepted = await daemonLifecycleHooks.requestDaemonShutdown();
+          let portReleased = shutdownAccepted && await daemonLifecycleHooks.waitForDaemonStop(3000);
+
+          if (!portReleased) {
+            const stalePid = health.status?.pid;
+            if (typeof stalePid === 'number' && Number.isInteger(stalePid) && stalePid > 0) {
+              try {
+                process.kill(stalePid, 'SIGKILL');
+              } catch {
+                // EPERM / ESRCH are both resolved by polling the fixed daemon port.
+              }
+              portReleased = await daemonLifecycleHooks.waitForDaemonStop(2000);
+            }
+          }
+
+          if (!portReleased) {
+            throw new BrowserConnectError(
+              'Stale daemon could not be replaced',
+              `A stale daemon (${reason}) is running but did not shut down (graceful + SIGKILL both failed).\n` +
+              '  Run manually: opencli daemon stop',
+              'daemon-not-running',
+            );
+          }
+        }
+
+        if (verbose && (process.env.OPENCLI_VERBOSE || process.stderr.isTTY)) {
+          process.stderr.write('⏳ Starting daemon...\n');
+        }
+        daemonLifecycleHooks.spawnDaemonProcess();
+      } finally {
+        releaseLock();
+      }
     }
-    daemonLifecycleHooks.spawnDaemonProcess();
   } else if (verbose && (process.env.OPENCLI_VERBOSE || process.stderr.isTTY)) {
     process.stderr.write('⏳ Waiting for Chrome/Chromium extension to connect...\n');
     process.stderr.write('   Make sure Chrome or Chromium is open and the OpenCLI extension is enabled.\n');

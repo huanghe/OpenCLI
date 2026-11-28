@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { BrowserBridge } from './browser/index.js';
 import { withTimeoutMs } from './runtime.js';
@@ -337,5 +340,54 @@ describe('BrowserBridge state', () => {
     const bridge = new BrowserBridge();
 
     await expect(bridge.connect({ timeout: 0.1 })).rejects.toThrow('Stale daemon could not be replaced');
+  });
+
+  it('serializes concurrent daemon starts via file lock and takes over dead-PID stale locks', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-lock-'));
+    const lockPath = path.join(tmpDir, 'daemon-start.lock');
+    try {
+      const release1 = daemonLifecycle.acquireDaemonStartLock({ lockPath, isProcessAlive: () => true });
+      expect(release1).toBeTypeOf('function');
+
+      // Contended by a live process: second caller gets null.
+      const release2 = daemonLifecycle.acquireDaemonStartLock({ lockPath, isProcessAlive: () => true });
+      expect(release2).toBeNull();
+
+      // Releasing lets the next caller acquire.
+      release1!();
+      expect(fs.existsSync(lockPath)).toBe(false);
+
+      // Write a stale lock owned by a dead PID: next caller steals it cleanly.
+      fs.writeFileSync(lockPath, JSON.stringify({ pid: 999999, createdAt: Date.now() }));
+      const release3 = daemonLifecycle.acquireDaemonStartLock({ lockPath, isProcessAlive: () => false });
+      expect(release3).toBeTypeOf('function');
+      release3!();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips duplicate spawnDaemonProcess when another live process holds the start lock', async () => {
+    vi.spyOn(daemonTransport, 'getDaemonHealth')
+      .mockResolvedValueOnce({ state: 'stopped', status: null })
+      .mockResolvedValue({
+        state: 'ready',
+        status: {
+          ok: true,
+          pid: 1234,
+          uptime: 1,
+          daemonVersion: '99.0.0',
+          extensionConnected: true,
+          pending: 0,
+          memoryMB: 20,
+          port: 19825,
+        },
+      });
+    vi.spyOn(daemonLifecycle.daemonLifecycleHooks, 'acquireDaemonStartLock').mockReturnValue(null);
+    const spawnSpy = vi.spyOn(daemonLifecycle.daemonLifecycleHooks, 'spawnDaemonProcess');
+
+    const health = await daemonLifecycle.ensureBrowserBridgeReady({ timeoutSeconds: 1, verbose: false });
+    expect(health.state).toBe('ready');
+    expect(spawnSpy).not.toHaveBeenCalled();
   });
 });

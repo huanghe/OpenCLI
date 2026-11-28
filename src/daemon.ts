@@ -42,6 +42,7 @@ import {
   SessionLeaseRegistry,
   buildSessionBusyFailure,
   getSessionLeaseKey,
+  isPidAlive,
   isSessionLeaseCommand,
 } from './session-lease.js';
 import { SLOT_WAIT_DEFAULT_MS, SiteSlotScheduler, SlotAdmission, parseSlotPolicy, validSlotWaitMs } from './site-slots.js';
@@ -72,6 +73,13 @@ type PendingEntry = {
   action: string;
   dispatched: boolean;
   /**
+   * True once every HTTP caller waiting on this command has disconnected before
+   * receiving a response (e.g. CLI process killed or timed out). Used so
+   * orphaned in-flight commands do not pin a dead run's lease or slot until the
+   * 120s daemon timer fires.
+   */
+  clientGone: boolean;
+  /**
    * All HTTP requests waiting on this command id. The first settler is the
    * original request; transport retries with the same id attach here instead
    * of re-dispatching, so a retry never re-executes a command that is still
@@ -91,14 +99,14 @@ const pending = new Map<string, PendingEntry>();
 
 // One logical write lease per (contextId, surface, persistent site session).
 // Serializes concurrent adapter write commands so a retry can't drive the same
-// Chrome tab as a still-running command. Stale leases self-expire (see
-// session-lease.ts).
-const sessionLeases = new SessionLeaseRegistry();
+// Chrome tab as a still-running command. Stale / dead-PID leases self-expire
+// (see session-lease.ts).
+const sessionLeases = new SessionLeaseRegistry(SESSION_LEASE_TTL_MS, isPidAlive);
 
 // Per-(contextId, site) slot pools with a cancellable admission queue
 // (site-slots.ts). A queued slot-acquire is an open HTTP request.
 const slotAdmission = new SlotAdmission({
-  scheduler: new SiteSlotScheduler({ ttlMs: SESSION_LEASE_TTL_MS }),
+  scheduler: new SiteSlotScheduler({ ttlMs: SESSION_LEASE_TTL_MS, isProcessAlive: isPidAlive }),
   routeFailure: (contextId) => {
     const route = resolveExtensionConnection(contextId, undefined);
     return route.connection ? null : { errorCode: route.errorCode, error: route.error };
@@ -107,13 +115,38 @@ const slotAdmission = new SlotAdmission({
   log: (msg) => pushLog({ level: 'info', msg, ts: Date.now() }),
 });
 
-/** A TTL-stale lease holder with a command still in flight is alive, not dead. */
+/** A TTL-stale lease holder with a live-caller command in flight is alive, not dead. */
 function runHasPendingWork(runId: string): boolean {
   for (const entry of pending.values()) {
-    if (entry.runId === runId) return true;
+    if (entry.runId === runId && !entry.clientGone) return true;
   }
   return false;
 }
+
+let staleLeasesReclaimed = 0;
+let staleSlotsReclaimed = 0;
+
+function reconcileStaleState(): { reclaimedLeases: number; reclaimedSlots: number } {
+  const now = Date.now();
+  const reclaimedLeases = sessionLeases.prune(now, runHasPendingWork);
+  const reclaimedSlots = slotAdmission.reclaimStale();
+  staleLeasesReclaimed += reclaimedLeases;
+  staleSlotsReclaimed += reclaimedSlots;
+  if (reclaimedLeases > 0 || reclaimedSlots > 0) {
+    pushLog({
+      level: 'info',
+      msg: `[daemon] Reclaimed stale state (leases=${reclaimedLeases}, slots=${reclaimedSlots})`,
+      ts: now,
+    });
+  }
+  return { reclaimedLeases, reclaimedSlots };
+}
+
+const STALE_SWEEP_INTERVAL_MS = 5_000;
+const staleSweepTimer = setInterval(() => {
+  reconcileStaleState();
+}, STALE_SWEEP_INTERVAL_MS);
+staleSweepTimer.unref();
 
 function settlePending(id: string, entry: PendingEntry, outcome: { data?: unknown; error?: Error }): void {
   clearTimeout(entry.timer);
@@ -211,6 +244,15 @@ function registerExtensionConnection(ws: WebSocket, rawContextId: unknown): Exte
   return connection;
 }
 
+function touchExtensionLastSeen(ws: WebSocket): void {
+  for (const connection of extensionProfiles.values()) {
+    if (connection.ws === ws) {
+      connection.lastSeenAt = Date.now();
+      return;
+    }
+  }
+}
+
 function unregisterExtensionConnection(ws: WebSocket): void {
   for (const [contextId, connection] of extensionProfiles.entries()) {
     if (connection.ws !== ws) continue;
@@ -228,6 +270,9 @@ function unregisterExtensionConnection(ws: WebSocket): void {
       }
       settlePending(id, p, { error: new DaemonCommandFailure(failure.message, failure.errorCode, failure.errorHint, failure.status) });
     }
+    // Fail fast any queued slot waiters for this profile instead of leaving
+    // them stuck until their waitMs budget expires.
+    slotAdmission.onRouteDisconnected(contextId);
   }
 }
 
@@ -336,6 +381,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       sessionLeases: sessionLeases.list(Date.now(), runHasPendingWork),
       siteSlots: slotAdmission.list(),
       commandResultUnknown: commandResultUnknownCount,
+      staleLeasesReclaimed,
+      staleSlotsReclaimed,
       memoryMB: Math.round(mem.rss / 1024 / 1024 * 10) / 10,
       port: PORT,
     });
@@ -355,6 +402,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (req.method === 'DELETE' && pathname === '/logs') {
     logBuffer.length = 0;
     jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/reconcile') {
+    const reclaimed = reconcileStaleState();
+    jsonResponse(res, 200, { ok: true, ...reclaimed, pending: pending.size });
     return;
   }
 
@@ -481,12 +534,28 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
       // A transport retry of an in-flight command attaches to it instead of
       // re-dispatching — the extension is already executing this id.
+      const attachClientDisconnect = (entry: PendingEntry, settler: PendingSettler): void => {
+        res.on('close', () => {
+          if (res.writableEnded) return;
+          const idx = entry.settlers.indexOf(settler);
+          if (idx >= 0) entry.settlers.splice(idx, 1);
+          if (entry.settlers.length === 0) {
+            entry.clientGone = true;
+            if (entry.runId) reconcileStaleState();
+          }
+          settler.resolve(undefined);
+        });
+      };
+
       const existing = pending.get(body.id);
       if (existing) {
+        existing.clientGone = false;
         const result = await new Promise<unknown>((resolve, reject) => {
-          existing.settlers.push({ resolve, reject });
+          const settler: PendingSettler = { resolve, reject };
+          existing.settlers.push(settler);
+          attachClientDisconnect(existing, settler);
         });
-        jsonResponse(res, 200, result);
+        if (!res.writableEnded && !res.destroyed) jsonResponse(res, 200, result);
         return;
       }
 
@@ -501,17 +570,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
           }
           settlePending(body.id, entry, { error: new DaemonCommandFailure(failure.message, failure.errorCode, failure.errorHint, failure.status) });
         }, timeoutMs);
+        const settler: PendingSettler = { resolve, reject };
         const entry: PendingEntry = {
           contextId: route.connection!.contextId,
           action: typeof body.action === 'string' ? body.action : 'unknown',
           dispatched: false,
-          settlers: [{ resolve, reject }],
+          clientGone: false,
+          settlers: [settler],
           timer,
           ...(leaseKey && leaseRunId ? { leaseKey, runId: leaseRunId } : {}),
           // Slot holders (reads included) stay alive while an exec is in flight.
           ...(!leaseKey && typeof body.runId === 'string' && body.runId ? { runId: body.runId } : {}),
         };
         pending.set(body.id, entry);
+        attachClientDisconnect(entry, settler);
         const failBeforeDispatch = (err: unknown) => {
           if (pending.get(body.id) !== entry) return;
           const failure = buildCommandDispatchFailure(entry.contextId);
@@ -531,8 +603,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         }
       });
 
-      jsonResponse(res, 200, result);
+      if (!res.writableEnded && !res.destroyed) jsonResponse(res, 200, result);
     } catch (err) {
+      if (res.writableEnded || res.destroyed) return;
       const commandFailure = err instanceof DaemonCommandFailure ? err : null;
       jsonResponse(res, commandFailure?.status ?? (err instanceof Error && err.message.includes('timeout') ? 408 : 400), {
         ok: false,
@@ -566,7 +639,7 @@ const wss = new WebSocketServer({
 wss.on('connection', (ws: WebSocket) => {
   log.info('[daemon] Extension connected');
 
-  // ── Heartbeat: ping every 15s, close if 2 pongs missed ──
+  // ── Heartbeat: ping every 10s, close if 2 pongs missed (20s max half-open detection) ──
   let missedPongs = 0;
   const heartbeatInterval = setInterval(() => {
     if (ws.readyState !== WebSocket.OPEN) {
@@ -581,13 +654,15 @@ wss.on('connection', (ws: WebSocket) => {
     }
     missedPongs++;
     ws.ping();
-  }, 15000);
+  }, 10_000);
 
   ws.on('pong', () => {
     missedPongs = 0;
+    touchExtensionLastSeen(ws);
   });
 
   ws.on('message', (data: RawData) => {
+    touchExtensionLastSeen(ws);
     try {
       const msg = JSON.parse(data.toString());
 
@@ -677,6 +752,7 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 
 // Graceful shutdown
 function shutdown(): void {
+  clearInterval(staleSweepTimer);
   // Reject all pending requests so the CLI gets a structured response it can
   // act on instead of a socket hang-up it must treat as result-unknown.
   // Not-yet-dispatched commands get the pre-dispatch contract (safe to resend

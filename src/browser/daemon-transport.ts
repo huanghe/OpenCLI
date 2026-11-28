@@ -30,6 +30,8 @@ export interface DaemonStatus {
   profiles?: BrowserProfileStatus[];
   pending: number;
   commandResultUnknown?: number;
+  staleLeasesReclaimed?: number;
+  staleSlotsReclaimed?: number;
   memoryMB: number;
   port: number;
 }

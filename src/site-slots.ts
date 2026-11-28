@@ -18,6 +18,8 @@
  * injected dependencies so the daemon stays a thin adapter.
  */
 
+import { parsePidFromRunId } from './session-lease.js';
+
 export interface SlotPolicy {
   poolSize: number;
   minIntervalMs: number;
@@ -74,10 +76,12 @@ export class SiteSlotScheduler {
   private readonly reacquired = new Set<string>();
   private readonly ttlMs: number;
   private readonly random: () => number;
+  private readonly isProcessAlive?: (pid: number) => boolean;
 
-  constructor(opts: { ttlMs: number; random?: () => number }) {
+  constructor(opts: { ttlMs: number; random?: () => number; isProcessAlive?: (pid: number) => boolean }) {
     this.ttlMs = opts.ttlMs;
     this.random = opts.random ?? Math.random;
+    this.isProcessAlive = opts.isProcessAlive;
   }
 
   enqueue(key: string, input: { runId: string; policy: SlotPolicy; now: number }, hasPendingWork: (runId: string) => boolean = () => false): string | null {
@@ -208,6 +212,23 @@ export class SiteSlotScheduler {
     return this.isAlive(h, now, hasPendingWork) ? h!.runId : null;
   }
 
+  /** Reclaim all slots whose holder is dead (PID gone) or expired past TTL. */
+  reclaimStale(now: number, hasPendingWork: (runId: string) => boolean): number {
+    let reclaimed = 0;
+    for (const pool of this.pools.values()) {
+      for (let i = 0; i < pool.slots.length; i++) {
+        const holder = pool.slots[i];
+        if (holder && !this.isAlive(holder, now, hasPendingWork)) {
+          pool.slots[i] = null;
+          this.runKeys.delete(holder.runId);
+          this.reacquired.delete(holder.runId);
+          reclaimed++;
+        }
+      }
+    }
+    return reclaimed;
+  }
+
   private holderOf(runId: string): Holder | undefined {
     const key = this.runKeys.get(runId);
     if (key === undefined) return undefined;
@@ -215,7 +236,12 @@ export class SiteSlotScheduler {
   }
 
   private isAlive(h: Holder | null, now: number, hasPendingWork: (runId: string) => boolean): boolean {
-    return h !== null && (now - h.lastSeenAt <= this.ttlMs || hasPendingWork(h.runId));
+    if (h === null) return false;
+    if (this.isProcessAlive) {
+      const pid = parsePidFromRunId(h.runId);
+      if (pid !== null && !this.isProcessAlive(pid)) return false;
+    }
+    return now - h.lastSeenAt <= this.ttlMs || hasPendingWork(h.runId);
   }
 }
 
@@ -352,6 +378,38 @@ export class SlotAdmission {
   release(runId: string): void {
     this.deps.scheduler.release(runId);
     this.pump();
+  }
+
+  /** Sweep stale / dead-PID slot holders and immediately pump queued waiters. */
+  reclaimStale(): number {
+    const reclaimed = this.deps.scheduler.reclaimStale(this.now(), this.deps.hasPendingWork);
+    if (reclaimed > 0 || this.deps.scheduler.hasWork()) this.pump();
+    return reclaimed;
+  }
+
+  /**
+   * Fail fast all queued waiters targeting a profile whose extension just
+   * disconnected, rather than leaving them hung until their waitMs timer fires.
+   */
+  onRouteDisconnected(contextId: string): number {
+    let notified = 0;
+    for (const [runId, waiter] of [...this.waiters.entries()]) {
+      if (waiter.contextId !== contextId) continue;
+      this.waiters.delete(runId);
+      this.clearTimer(waiter.waitTimer);
+      this.deps.scheduler.cancel(runId);
+      waiter.reply({
+        status: 503,
+        body: {
+          ok: false,
+          errorCode: 'profile_disconnected',
+          error: `Browser profile "${contextId}" disconnected while waiting for a ${waiter.site} slot.`,
+        },
+      });
+      notified++;
+    }
+    if (notified > 0 || this.deps.scheduler.hasWork()) this.pump();
+    return notified;
   }
 
   /** A holder's in-flight command settled: its TTL-staleness may now count. */

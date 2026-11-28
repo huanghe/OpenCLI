@@ -369,4 +369,61 @@ describe('slot admission boundaries', () => {
       expect(parseSlotPolicy({ poolSize: 1, maxIntervalMs: value })).toBeNull();
     }
   });
+
+  it('reclaims a dead-PID holder slot immediately and wakes queued waiters without waiting for TTL', () => {
+    const alivePids = new Set([101, 202]);
+    let now = 0;
+    const scheduler = new SiteSlotScheduler({ ttlMs: 45_000, random: () => 0, isProcessAlive: (pid) => alivePids.has(pid) });
+    const replies = new Map<string, SlotReply[]>();
+    const admission = new SlotAdmission({
+      scheduler,
+      routeFailure: () => null,
+      hasPendingWork: () => true,
+      now: () => now,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    });
+    admission.acquire({
+      contextId: 'p1', site: 'twitter', runId: 'run_101_1_1', policy: one, waitMs: 60_000,
+      reply: (r) => replies.set('run_101_1_1', [r]),
+    });
+    admission.acquire({
+      contextId: 'p1', site: 'twitter', runId: 'run_202_2_2', policy: one, waitMs: 60_000,
+      reply: (r) => replies.set('run_202_2_2', [r]),
+    });
+    expect(replies.get('run_101_1_1')?.[0].status).toBe(200);
+    expect(replies.get('run_202_2_2')).toBeUndefined();
+
+    // Holder PID 101 crashes; reclaimStale frees the slot at t=100ms (well below 45s TTL)
+    // and grants it straight to waiter 202.
+    now = 100;
+    alivePids.delete(101);
+    expect(admission.reclaimStale()).toBe(1);
+    expect(replies.get('run_202_2_2')?.[0]).toMatchObject({
+      status: 200,
+      body: { ok: true, data: { session: 'site:twitter#0', slot: 0 } },
+    });
+  });
+
+  it('fails queued waiters immediately on extension disconnect for their profile only', () => {
+    const h = harness();
+    h.acquire('a', one);
+    h.acquire('b', one);
+    const otherProfileReplies: SlotReply[] = [];
+    h.admission.acquire({
+      contextId: 'p2', site: 'xhs', runId: 'p2_holder', policy: one, waitMs: 10_000,
+      reply: () => {},
+    });
+    h.admission.acquire({
+      contextId: 'p2', site: 'xhs', runId: 'p2_waiter', policy: one, waitMs: 10_000,
+      reply: (r) => otherProfileReplies.push(r),
+    });
+
+    expect(h.admission.onRouteDisconnected('p1')).toBe(1);
+    expect(h.replies.get('b')?.[0]).toMatchObject({
+      status: 503,
+      body: { ok: false, errorCode: 'profile_disconnected' },
+    });
+    expect(otherProfileReplies).toHaveLength(0);
+  });
 });

@@ -5,6 +5,7 @@ import {
   SessionLeaseRegistry,
   buildSessionBusyFailure,
   getSessionLeaseKey,
+  isPidAlive,
   isSessionLeaseCommand,
   parsePidFromRunId,
 } from './session-lease.js';
@@ -226,6 +227,37 @@ describe('SessionLeaseRegistry', () => {
 
     // A predicate that reports no pending work drops the stale holder again.
     expect(reg.list(staleNow, () => false)).toEqual([]);
+  });
+
+  it('reclaims a lease immediately when the holder PID is dead, even within TTL or with orphaned pending work', () => {
+    const alivePids = new Set([111, 222]);
+    const reg = new SessionLeaseRegistry(SESSION_LEASE_TTL_MS, (pid) => alivePids.has(pid));
+
+    expect(reg.touch(KEY, { runId: 'run_111_1_a', command: 'chatgpt ask', now: T0 }).granted).toBe(true);
+    // While PID 111 is alive, rival 222 is rejected.
+    expect(reg.touch(KEY, { runId: 'run_222_2_b', command: 'chatgpt ask', now: T0 + 100 }).granted).toBe(false);
+
+    // Once PID 111 exits (e.g. kill -9), rival 222 takes over immediately even
+    // inside TTL and even if an orphaned pending entry still exists for run_111.
+    alivePids.delete(111);
+    expect(reg.list(T0 + 200, () => true)).toEqual([]);
+    expect(reg.touch(KEY, { runId: 'run_222_2_b', command: 'chatgpt ask', now: T0 + 200, hasPendingWork: () => true })).toMatchObject({
+      granted: true,
+      holder: { runId: 'run_222_2_b', pid: 222 },
+    });
+
+    // prune() evicts dead-PID leases proactively and reports the count.
+    alivePids.delete(222);
+    expect(reg.prune(T0 + 300, () => true)).toBe(1);
+    expect(reg.prune(T0 + 300, () => true)).toBe(0);
+  });
+});
+
+describe('isPidAlive', () => {
+  it('detects current process as alive and invalid PIDs as dead', () => {
+    expect(isPidAlive(process.pid)).toBe(true);
+    expect(isPidAlive(0)).toBe(false);
+    expect(isPidAlive(-1)).toBe(false);
   });
 });
 

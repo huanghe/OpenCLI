@@ -62,6 +62,20 @@ export function parsePidFromRunId(runId: string): number | null {
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
+/**
+ * Check whether a local CLI process PID is still alive.
+ * `EPERM` means the process exists under another user; `ESRCH` means it is gone.
+ */
+export function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === 'EPERM';
+  }
+}
+
 export type SessionLeaseCommand = {
   surface?: unknown;
   siteSession?: unknown;
@@ -96,7 +110,23 @@ export interface LeaseTouchResult {
 export class SessionLeaseRegistry {
   private readonly leases = new Map<string, SessionLeaseHolder>();
 
-  constructor(private readonly ttlMs: number = SESSION_LEASE_TTL_MS) {}
+  constructor(
+    private readonly ttlMs: number = SESSION_LEASE_TTL_MS,
+    private readonly isProcessAlive?: (pid: number) => boolean,
+  ) {}
+
+  private isHolderAlive(
+    holder: SessionLeaseHolder,
+    now: number,
+    hasPendingWork?: (runId: string) => boolean,
+  ): boolean {
+    // A holder whose local CLI process has exited cannot continue driving the
+    // tab — reclaim immediately instead of waiting out the full TTL.
+    if (holder.pid !== null && this.isProcessAlive && !this.isProcessAlive(holder.pid)) {
+      return false;
+    }
+    return now - holder.lastSeenAt <= this.ttlMs || hasPendingWork?.(holder.runId) === true;
+  }
 
   /**
    * Acquire or refresh the lease for `key`.
@@ -117,9 +147,7 @@ export class SessionLeaseRegistry {
     input: { runId: string; command: string; now: number; hasPendingWork?: (runId: string) => boolean },
   ): LeaseTouchResult {
     const current = this.leases.get(key);
-    const alive = current !== undefined && (
-      input.now - current.lastSeenAt <= this.ttlMs || input.hasPendingWork?.(current.runId) === true
-    );
+    const alive = current !== undefined && this.isHolderAlive(current, input.now, input.hasPendingWork);
     if (current !== undefined && alive && current.runId !== input.runId) {
       return { granted: false, holder: current };
     }
@@ -163,11 +191,23 @@ export class SessionLeaseRegistry {
   get(key: string, now: number): SessionLeaseHolder | undefined {
     const current = this.leases.get(key);
     if (current === undefined) return undefined;
-    if (now - current.lastSeenAt > this.ttlMs) {
+    if (!this.isHolderAlive(current, now)) {
       this.leases.delete(key);
       return undefined;
     }
     return current;
+  }
+
+  /** Evict all dead-PID or TTL-expired leases; returns the number evicted. */
+  prune(now: number, hasPendingWork?: (runId: string) => boolean): number {
+    let evicted = 0;
+    for (const [key, holder] of this.leases) {
+      if (!this.isHolderAlive(holder, now, hasPendingWork)) {
+        this.leases.delete(key);
+        evicted++;
+      }
+    }
+    return evicted;
   }
 
   /**
@@ -181,8 +221,7 @@ export class SessionLeaseRegistry {
   list(now: number, hasPendingWork?: (runId: string) => boolean): Array<{ key: string } & SessionLeaseHolder> {
     const out: Array<{ key: string } & SessionLeaseHolder> = [];
     for (const [key, holder] of this.leases) {
-      const alive = now - holder.lastSeenAt <= this.ttlMs || hasPendingWork?.(holder.runId) === true;
-      if (alive) out.push({ key, ...holder });
+      if (this.isHolderAlive(holder, now, hasPendingWork)) out.push({ key, ...holder });
     }
     return out;
   }
