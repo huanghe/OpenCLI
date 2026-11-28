@@ -1,7 +1,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
-import { describeTwitterApiError } from './shared.js';
+import { createTwitterApiError } from './shared.js';
 
 const LISTS_QUERY_ID = '78UbkyXwXBD98IgUWXOy9g';
 const OPERATION_NAME = 'ListsManagementPageTimeline';
@@ -163,7 +163,7 @@ export const command = cli({
             return r.ok ? await r.json() : { error: r.status };
         }`);
         if (data?.error) {
-            throw new CommandExecutionError(describeTwitterApiError('ListsManagementPageTimeline', data.error));
+            throw createTwitterApiError('ListsManagementPageTimeline', data.error);
         }
         const seen = new Set();
         if (!getListsManagementInstructions(data)) {

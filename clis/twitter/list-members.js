@@ -1,6 +1,6 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { describeTwitterApiError, resolveTwitterOperationMetadata, unwrapBrowserResult } from './shared.js';
+import { createTwitterApiError, resolveTwitterOperationMetadata, unwrapBrowserResult } from './shared.js';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 
 const OPERATION_NAME = 'ListMembers';
@@ -154,7 +154,7 @@ cli({
             if (data?.error) {
                 if (data.error === 401 || data.error === 403)
                     throw new AuthRequiredError('x.com', `Twitter list members request failed (HTTP ${data.error})`);
-                throw new CommandExecutionError(describeTwitterApiError(OPERATION_NAME, data.error, 'list may be private'));
+                throw createTwitterApiError(OPERATION_NAME, data.error, 'list may be private');
             }
             const { users, nextCursor, instructions } = parseListMembers(data);
             if (!instructions) {

@@ -390,4 +390,19 @@ describe('youtube channel handle resolution', () => {
             expect(page.goto).not.toHaveBeenCalled();
         } finally { dom.window.close(); }
     });
+    it('reuses an already-ready youtube.com tab without reloading or sleeping', async () => {
+        const dom = new JSDOM('', { url: 'https://www.youtube.com/watch?v=abc', runScripts: 'outside-only' });
+        dom.window.ytcfg = { data_: { INNERTUBE_API_KEY: 'fixture', INNERTUBE_CONTEXT: { client: {} } } };
+        dom.window.fetch = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({ metadata: { channelMetadataRenderer: { title: 'Warm Channel', externalId: channelId } } }),
+        }));
+        const page = { goto: vi.fn(), wait: vi.fn(), evaluate: vi.fn(script => dom.window.eval(script)) };
+        try {
+            const rows = await command().func(page, { id: channelId });
+            expect(page.goto).not.toHaveBeenCalled();
+            expect(page.wait).not.toHaveBeenCalled();
+            expect(rows).toContainEqual({ field: 'name', value: 'Warm Channel' });
+        } finally { dom.window.close(); }
+    });
 });

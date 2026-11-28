@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { extractMedia, describeTwitterApiError, resolveTwitterQueryId, unwrapBrowserResult } from './shared.js';
+import { extractMedia, createTwitterApiError, resolveTwitterQueryId, unwrapBrowserResult } from './shared.js';
 import { DEFAULT_MAX_PAGINATION_PAGES, appendJsonlRows, ensureParentDir, loadJsonlArchiveState, removeResumeFile, resolveMaxPages, resolveOptionalFilePath } from './archive.js';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
 const BOOKMARKS_QUERY_ID = 'Fy0QMy4q_aZCpkO0PnyLYw';
@@ -258,7 +258,7 @@ cli({
       }`));
             if (data?.error) {
                 if ((useOutputFile ? outputCount : allTweets.length) === 0)
-                    throw new CommandExecutionError(describeTwitterApiError('Bookmarks', data.error));
+                    throw createTwitterApiError('Bookmarks', data.error);
                 break;
             }
             const hasInstructions = Array.isArray(data?.data?.bookmark_timeline_v2?.timeline?.instructions)

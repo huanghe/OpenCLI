@@ -1,6 +1,6 @@
 import { AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { resolveTwitterQueryId, describeTwitterApiError, unwrapBrowserResult } from './shared.js';
+import { resolveTwitterQueryId, describeTwitterApiError, createTwitterApiError, unwrapBrowserResult } from './shared.js';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 const TWEET_RESULT_BY_REST_ID_QUERY_ID = '7xflPyRiUxGVbJd4uWmbfg';
 
@@ -246,11 +246,10 @@ cli({
             throw new CommandExecutionError('Twitter article response payload is malformed');
         }
         if (rawResult?.httpStatus) {
-            const message = describeTwitterApiError('TweetResultByRestId', rawResult.httpStatus);
             if (rawResult.httpStatus === 401 || rawResult.httpStatus === 403) {
-                throw new AuthRequiredError('x.com', message);
+                throw new AuthRequiredError('x.com', describeTwitterApiError('TweetResultByRestId', rawResult.httpStatus));
             }
-            throw new CommandExecutionError(message);
+            throw createTwitterApiError('TweetResultByRestId', rawResult.httpStatus);
         }
         if (rawResult?.error) {
             throw new CommandExecutionError(rawResult.error + (rawResult.hint ? ` (${rawResult.hint})` : ''));

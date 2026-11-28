@@ -17,7 +17,7 @@ import { generateStealthJs } from './stealth.js';
 import { waitForDomStableJs } from './dom-helpers.js';
 import { CDPBasePage, NativeInputVisibilityError } from './base-page.js';
 import { classifyBrowserError } from './errors.js';
-import { CommandExecutionError } from '../errors.js';
+import { CliError, CommandExecutionError, TransientNetworkError, isTransientFetchMessage } from '../errors.js';
 import { log } from '../logger.js';
 
 function isUnsupportedNetworkCaptureError(err: unknown): boolean {
@@ -175,13 +175,28 @@ export class Page extends CDPBasePage {
   async evaluate<Args extends unknown[], T>(fn: BrowserEvaluateFunction<Args, T>, ...args: Args): Promise<Awaited<T>>;
   async evaluate(input: string | BrowserEvaluateFunction<unknown[], unknown>, ...args: unknown[]): Promise<unknown> {
     const code = buildEvaluateExpression(input, args);
+    const wrapTransientNetwork = (err: unknown): never => {
+      if (!(err instanceof CliError)) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isTransientFetchMessage(msg)) {
+          const wrapped = new TransientNetworkError(msg);
+          wrapped.cause = err;
+          throw wrapped;
+        }
+      }
+      throw err;
+    };
     try {
       return await sendCommand('exec', { code, ...this._cmdOpts() });
     } catch (err) {
       const advice = classifyBrowserError(err);
-      if (advice.kind !== 'target-navigation') throw err;
+      if (advice.kind !== 'target-navigation') wrapTransientNetwork(err);
       await new Promise((resolve) => setTimeout(resolve, advice.delayMs));
-      return sendCommand('exec', { code, ...this._cmdOpts() });
+      try {
+        return await sendCommand('exec', { code, ...this._cmdOpts() });
+      } catch (retryErr) {
+        wrapTransientNetwork(retryErr);
+      }
     }
   }
 

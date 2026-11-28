@@ -1,6 +1,6 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { sanitizeQueryId, extractMedia, extractQuotedTweet, describeTwitterApiError } from './shared.js';
+import { sanitizeQueryId, extractMedia, extractQuotedTweet, createTwitterApiError } from './shared.js';
 import { applyTopByEngagement } from './utils.js';
 import {
     MAX_USER_TWEETS_PAGES,
@@ -134,7 +134,7 @@ cli({
             const fetchCount = Math.min(USER_TWEETS_PAGE_SIZE, limit - all.length + 10);
             const data = await fetchUserTimelinePage(page, context, cursor, fetchCount);
             if (data?.error) {
-                if (all.length === 0) throw new CommandExecutionError(describeTwitterApiError('UserTweets', data.error));
+                if (all.length === 0) throw createTwitterApiError('UserTweets', data.error);
                 break;
             }
             const { tweets, nextCursor } = parseUserTweets(data, seen);

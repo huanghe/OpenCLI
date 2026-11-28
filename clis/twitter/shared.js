@@ -1,4 +1,4 @@
-import { ArgumentError, AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
+import { ArgumentError, AuthRequiredError, CommandExecutionError, RateLimitError, TransientNetworkError } from '@jackwener/opencli/errors';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 
 const QUERY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -436,7 +436,7 @@ export async function resolveLoggedInTwitterUser(page) {
         throw new AuthRequiredError('x.com', `Twitter/X viewer lookup failed (HTTP ${response.error})`);
     }
     if (response?.error) {
-        throw new CommandExecutionError(describeTwitterApiError('UserByRestId', response.error));
+        throw createTwitterApiError('UserByRestId', response.error);
     }
     const screenName = extractScreenNameFromUserResult(response);
     if (!screenName) {
@@ -695,6 +695,28 @@ export function describeTwitterApiError(operation, status, extraHint) {
     return `${prefix} — ${suffix}`;
 }
 
+/**
+ * Construct a typed CliError for a non-200 Twitter API response:
+ *   - 429       → RateLimitError (code: RATE_LIMITED, exitCode: 75 / TEMPFAIL)
+ *   - 500..599  → TransientNetworkError (code: NETWORK_ERROR, exitCode: 75 / TEMPFAIL)
+ *   - otherwise → CommandExecutionError (code: COMMAND_EXEC, exitCode: 1)
+ */
+export function createTwitterApiError(operation, status, extraHint, opts = {}) {
+    const code = Number(status);
+    const message = describeTwitterApiError(operation, status, extraHint);
+    if (code === 429) {
+        const parsedRetryAfter = opts?.retryAfter !== undefined ? Number(opts.retryAfter) : Number.NaN;
+        const retryAfterSeconds = Number.isFinite(parsedRetryAfter) && parsedRetryAfter > 0
+            ? Math.ceil(parsedRetryAfter)
+            : undefined;
+        return new RateLimitError(message, { status: 429, retryAfterSeconds });
+    }
+    if (code >= 500 && code < 600) {
+        return new TransientNetworkError(message);
+    }
+    return new CommandExecutionError(message);
+}
+
 export const __test__ = {
     sanitizeQueryId,
     buildUserByScreenNameQueryUrl,
@@ -712,4 +734,5 @@ export const __test__ = {
     looksLikePrivateTwitterTimeline,
     parseOperationFromBundleText,
     describeTwitterApiError,
+    createTwitterApiError,
 };

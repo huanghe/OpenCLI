@@ -3,10 +3,12 @@ import {
   mapConcurrent,
   parseJsonOrThrowLoginWall,
   throwIfLoginWall,
+  throwIfTransientNetworkError,
   BROWSER_JSON_SNIFF_FN,
   type LoginWallSignal,
+  type NetworkErrorSignal,
 } from './utils.js';
-import { ArgumentError, LoginWallError } from './errors.js';
+import { ArgumentError, LoginWallError, TransientNetworkError } from './errors.js';
 
 function makeResponse(body: string, opts: { status?: number; contentType?: string; url?: string } = {}): Response {
   return new Response(body, {
@@ -248,5 +250,66 @@ describe('BROWSER_JSON_SNIFF_FN', () => {
     ) as (input: string) => Promise<LoginWallSignal>;
 
     await expect(fetchJsonOrLoginWall('/api')).rejects.toThrow('JSON parse failed');
+  });
+
+  it('retries once on TypeError: Failed to fetch and succeeds when the retry succeeds', async () => {
+    let calls = 0;
+    const fetchJsonOrLoginWall = new Function(
+      'fetch',
+      `${BROWSER_JSON_SNIFF_FN}; return fetchJsonOrLoginWall;`,
+    )(async () => {
+      calls++;
+      if (calls === 1) throw new TypeError('Failed to fetch');
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as (input: string, init?: unknown, opts?: { retryDelayMs?: number }) => Promise<unknown>;
+
+    await expect(fetchJsonOrLoginWall('https://x.com/api', {}, { retryDelayMs: 0 })).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+
+  it('returns a __networkError sentinel after exhausting the single retry, and throwIfLoginWall maps it to TransientNetworkError (exit 75)', async () => {
+    let calls = 0;
+    const fetchJsonOrLoginWall = new Function(
+      'fetch',
+      `${BROWSER_JSON_SNIFF_FN}; return fetchJsonOrLoginWall;`,
+    )(async () => {
+      calls++;
+      throw new TypeError('Failed to fetch');
+    }) as (input: string, init?: unknown, opts?: { retryDelayMs?: number }) => Promise<NetworkErrorSignal>;
+
+    const res = await fetchJsonOrLoginWall('https://x.com/api', {}, { retryDelayMs: 0 });
+    expect(calls).toBe(2);
+    expect(res).toMatchObject({ __networkError: true, message: 'Failed to fetch', url: 'https://x.com/api' });
+    expect(() => throwIfTransientNetworkError(res)).toThrow(TransientNetworkError);
+    expect(() => throwIfLoginWall(res)).toThrow(TransientNetworkError);
+  });
+
+  it('does not retry URL-parsing TypeErrors', async () => {
+    let calls = 0;
+    const fetchJsonOrLoginWall = new Function(
+      'fetch',
+      `${BROWSER_JSON_SNIFF_FN}; return fetchJsonOrLoginWall;`,
+    )(async () => {
+      calls++;
+      throw new TypeError('Failed to parse URL from /i/api/graphql/abc/TweetDetail');
+    }) as (input: string, init?: unknown, opts?: { retryDelayMs?: number }) => Promise<unknown>;
+
+    await expect(fetchJsonOrLoginWall('/i/api/graphql/abc/TweetDetail', {}, { retryDelayMs: 0 })).rejects.toThrow('Failed to parse URL');
+    expect(calls).toBe(1);
+  });
+
+  it('attaches retryAfter header on HTTP 429 responses', async () => {
+    const fetchJsonOrLoginWall = new Function(
+      'fetch',
+      `${BROWSER_JSON_SNIFF_FN}; return fetchJsonOrLoginWall;`,
+    )(async () => new Response('{"errors":[]}', {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': '120' },
+    })) as (input: string) => Promise<unknown>;
+
+    await expect(fetchJsonOrLoginWall('https://x.com/api')).resolves.toEqual({ error: 429, retryAfter: '120' });
   });
 });

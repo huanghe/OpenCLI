@@ -10,7 +10,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { extractSelectedRichGridContents, parseVideoItem } from './channel-helpers.js';
-import { FETCH_BROWSE_FN, parseYoutubeCount, RESOLVE_CHANNEL_HANDLE_FN } from './utils.js';
+import { ensureYoutubeApiPage, FETCH_BROWSE_FN, parseYoutubeCount, RESOLVE_CHANNEL_HANDLE_FN, throwYoutubeApiError } from './utils.js';
 
 const MAX_LIMIT = 200;
 const MAX_PAGES = 10;
@@ -76,8 +76,7 @@ cli({
         if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
             throw new ArgumentError(`--limit must be an integer between 1 and ${MAX_LIMIT}`);
         }
-        await page.goto('https://www.youtube.com');
-        await page.wait(2);
+        await ensureYoutubeApiPage(page);
         const data = await page.evaluate(`
       (async () => {
         ${FETCH_BROWSE_FN}
@@ -99,13 +98,19 @@ cli({
         const home = await fetchBrowse(apiKey, { context, browseId });
         if (home.error) return home;
         const tabs = home.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+        const hasChannelMetadata = Boolean(home.metadata?.channelMetadataRenderer?.externalId || home.metadata?.channelMetadataRenderer?.title);
         const videosTab = tabs.find(t => {
           const tab = t.tabRenderer;
           const url = tab?.endpoint?.commandMetadata?.webCommandMetadata?.url || '';
           return tab?.tabIdentifier === 'VIDEOS' || url.endsWith('/videos') || tab?.title === 'Videos';
         });
         const params = videosTab?.tabRenderer?.endpoint?.browseEndpoint?.params;
-        if (!params) return { error: 'Channel has no Videos tab (empty channel or layout changed)', channelId: browseId };
+        if (!params) {
+          if (hasChannelMetadata || tabs.length > 0) {
+            return { channelId: browseId, videos: [], noVideosTab: true };
+          }
+          return { error: 'Channel browse payload missing metadata and tabs (layout changed or unavailable)', channelId: browseId };
+        }
 
         let payload = await fetchBrowse(apiKey, { context, browseId, params });
         if (payload.error) return payload;
@@ -126,10 +131,13 @@ cli({
       })()
     `);
         if (!data || typeof data !== 'object') throw new CommandExecutionError('Failed to fetch channel videos');
-        if (data.error) throw new CommandExecutionError(String(data.error));
+        throwYoutubeApiError(data);
         const videos = Array.isArray(data.videos) ? data.videos : [];
         if (videos.length === 0) {
-            throw new EmptyResultError('youtube channel-videos', `No videos found for ${channelRef}.`);
+            const hint = data.noVideosTab
+                ? `Channel ${channelRef} has no Videos tab (empty, Shorts-only, or Live-only channel).`
+                : `No videos found for ${channelRef}.`;
+            throw new EmptyResultError('youtube channel-videos', hint);
         }
         return videos.slice(0, limit).map((v, i) => ({
             rank: i + 1,

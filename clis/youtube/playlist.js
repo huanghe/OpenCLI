@@ -2,7 +2,7 @@
  * YouTube playlist — get playlist info and video list via InnerTube browse API.
  */
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { prepareYoutubeApiPage, FETCH_BROWSE_FN, extractPlaylistVideos } from './utils.js';
+import { prepareYoutubeApiPage, FETCH_BROWSE_FN, extractPlaylistVideos, throwYoutubeApiError } from './utils.js';
 import { CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 
 /**
@@ -99,9 +99,7 @@ cli({
         if (!data || typeof data !== 'object') {
             throw new CommandExecutionError('Failed to fetch playlist data');
         }
-        if (data.error) {
-            throw new CommandExecutionError(String(data.error));
-        }
+        throwYoutubeApiError(data);
         if (!data.videos?.length) {
             throw new EmptyResultError('youtube playlist');
         }

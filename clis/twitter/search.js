@@ -1,6 +1,7 @@
-import { ArgumentError, AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
+import { ArgumentError, AuthRequiredError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { extractAuthorAvatar, extractMedia, extractCard, extractQuotedTweet, normalizeTwitterGraphqlPayload, resolveTwitterOperationMetadata, describeTwitterApiError } from './shared.js';
+import { BROWSER_JSON_SNIFF_FN, throwIfLoginWall } from '@jackwener/opencli/utils';
+import { extractAuthorAvatar, extractMedia, extractCard, extractQuotedTweet, normalizeTwitterGraphqlPayload, resolveTwitterOperationMetadata, createTwitterApiError } from './shared.js';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
 
 // ── Public-search operator surface ─────────────────────────────────────
@@ -374,20 +375,20 @@ cli({
             const fetchCount = Number(kwargs.limit) - results.length + 10;
             const [requestUrl, requestPayload] = buildSearchTimelineRequest(operation, finalQuery, product, fetchCount, cursor);
             const requestBody = JSON.stringify(requestPayload);
-            const data = normalizeTwitterGraphqlPayload(await page.evaluate(`async () => {
+            const data = normalizeTwitterGraphqlPayload(throwIfLoginWall(await page.evaluate(`async () => {
+        ${BROWSER_JSON_SNIFF_FN}
         const options = {
           method: 'POST',
           headers: ${headers},
           credentials: 'include',
         };
         options['body'] = ${JSON.stringify(requestBody)};
-        const r = await fetch(${JSON.stringify(requestUrl)}, {
+        return await fetchJsonOrLoginWall(${JSON.stringify(requestUrl)}, {
           ...options,
         });
-        return r.ok ? await r.json() : { error: r.status };
-      }`));
+      }`), { url: requestUrl }));
             if (data?.error) {
-                if (results.length === 0) throw new CommandExecutionError(describeTwitterApiError('SearchTimeline', data.error));
+                if (results.length === 0) throw createTwitterApiError('SearchTimeline', data.error, undefined, { retryAfter: data.retryAfter });
                 break;
             }
             const { rows, nextCursor } = parsePage(data, seen);

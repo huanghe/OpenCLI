@@ -5,7 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import TurndownService from 'turndown';
-import { ArgumentError, LoginWallError } from './errors.js';
+import { ArgumentError, LoginWallError, TransientNetworkError } from './errors.js';
 
 /** Type guard: checks if a value is a non-null, non-array object. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,6 +101,15 @@ export interface LoginWallSignal {
   bodyPreview: string;
 }
 
+/** Sentinel shape that browser-side `fetch` wrappers return when a transient
+ * network error (e.g. `TypeError: Failed to fetch`) persists after a short
+ * backoff retry. */
+export interface NetworkErrorSignal {
+  __networkError: true;
+  message: string;
+  url: string;
+}
+
 function isLoginWallSignal(v: unknown): v is LoginWallSignal {
   return (
     typeof v === 'object'
@@ -110,12 +119,36 @@ function isLoginWallSignal(v: unknown): v is LoginWallSignal {
   );
 }
 
+function isNetworkErrorSignal(v: unknown): v is NetworkErrorSignal {
+  return (
+    typeof v === 'object'
+    && v !== null
+    && (v as Record<string, unknown>).__networkError === true
+    && typeof (v as Record<string, unknown>).message === 'string'
+  );
+}
+
+/** Throw a `TransientNetworkError` (exit 75) if `value` is the browser-side
+ * network-error sentinel; otherwise return `value` unchanged. */
+export function throwIfTransientNetworkError<T>(value: T, opts: { url?: string } = {}): T {
+  if (isNetworkErrorSignal(value)) {
+    const url = opts.url || value.url || '';
+    throw new TransientNetworkError(
+      url ? `Browser fetch failed for ${url}: ${value.message}` : `Browser fetch failed: ${value.message}`,
+      { url: url || undefined },
+    );
+  }
+  return value;
+}
+
 /** Throw a `LoginWallError` if `value` is the sentinel returned by the
- * browser-side sniffer; otherwise return `value` unchanged. Adapters that
+ * browser-side sniffer, or `TransientNetworkError` if `value` is a transient
+ * network-error sentinel; otherwise return `value` unchanged. Adapters that
  * fetch from inside `page.evaluate` call this on the result before consuming
  * it, so the Node-side gets a typed error instead of a JSON-parse stack
- * trace. */
+ * trace or `UNKNOWN`. */
 export function throwIfLoginWall<T>(value: T, opts: { url?: string } = {}): T {
+  throwIfTransientNetworkError(value, opts);
   if (isLoginWallSignal(value)) {
     throw new LoginWallError(
       `Server returned HTML instead of JSON (status=${value.status}). `
@@ -184,8 +217,34 @@ export async function parseJsonOrThrowLoginWall(
  *
  * The Node side then calls `throwIfLoginWall(res, { url })` on the result. */
 export const BROWSER_JSON_SNIFF_FN = `
-async function fetchJsonOrLoginWall(input, init) {
-  const r = await fetch(input, init);
+async function fetchJsonOrLoginWall(input, init, opts) {
+  const isTransientNetErr = (err) => {
+    if (!err || err.name === 'AbortError') return false;
+    const msg = String(err && err.message ? err.message : err);
+    if (/Failed to parse URL|Invalid URL/i.test(msg)) return false;
+    return err.name === 'TypeError' && /\\b(?:Failed to fetch|NetworkError|Load failed|fetch failed)\\b/i.test(msg);
+  };
+  let r;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      r = await fetch(input, init);
+      break;
+    } catch (err) {
+      if (!isTransientNetErr(err)) throw err;
+      if (attempt === 0) {
+        const delayMs = opts && typeof opts.retryDelayMs === 'number'
+          ? opts.retryDelayMs
+          : 500 + Math.floor(Math.random() * 300);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      return {
+        __networkError: true,
+        message: String(err && err.message ? err.message : err),
+        url: typeof input === 'string' ? input : '',
+      };
+    }
+  }
   const contentType = r.headers.get('content-type') || '';
   const text = await r.text();
   const trimmed = text.replace(/^\\s+/, '');
@@ -202,6 +261,10 @@ async function fetchJsonOrLoginWall(input, init) {
     };
   }
   if (!r.ok) {
+    if (r.status === 429) {
+      const retryAfter = r.headers.get('retry-after') || undefined;
+      return retryAfter ? { error: r.status, retryAfter } : { error: r.status };
+    }
     return { error: r.status };
   }
   try {

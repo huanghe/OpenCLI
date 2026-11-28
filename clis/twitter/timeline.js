@@ -1,6 +1,6 @@
 import { AuthRequiredError, CommandExecutionError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { resolveTwitterQueryId, extractMedia, extractCard, extractQuotedTweet, describeTwitterApiError } from './shared.js';
+import { resolveTwitterQueryId, extractMedia, extractCard, extractQuotedTweet, createTwitterApiError } from './shared.js';
 import { TWITTER_BEARER_TOKEN, applyTopByEngagement } from './utils.js';
 // ── Twitter GraphQL constants ──────────────────────────────────────────
 const HOME_TIMELINE_QUERY_ID = 'c-CzHF1LboFilMpsx4ZCrQ';
@@ -192,7 +192,7 @@ cli({
       }`);
             if (data?.error) {
                 if (allTweets.length === 0)
-                    throw new CommandExecutionError(describeTwitterApiError(endpoint, data.error));
+                    throw createTwitterApiError(endpoint, data.error);
                 break;
             }
             const { tweets, nextCursor } = parseHomeTimeline(data, seen);

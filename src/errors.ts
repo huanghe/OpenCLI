@@ -14,7 +14,7 @@
  *   2   Argument / usage error          (ArgumentError)
  *  66   No input / empty result         (EmptyResultError)
  *  69   Service unavailable             (BrowserConnectError, adapter load failures)
- *  75   Temporary failure, retry later  (TimeoutError)   EX_TEMPFAIL
+ *  75   Temporary failure, retry later  (TimeoutError, SessionBusyError, RateLimitError, TransientNetworkError)   EX_TEMPFAIL
  *  77   Permission denied / auth needed (AuthRequiredError)
  *  78   Configuration error             (ConfigError)
  * 130   Interrupted by Ctrl-C
@@ -29,7 +29,7 @@ export const EXIT_CODES = {
   USAGE_ERROR:     2,   // Bad arguments / command misuse
   EMPTY_RESULT:   66,   // No data / not found           (EX_NOINPUT)
   SERVICE_UNAVAIL:69,   // Daemon / browser unavailable  (EX_UNAVAILABLE)
-  TEMPFAIL:       75,   // Timeout — try again later     (EX_TEMPFAIL)
+  TEMPFAIL:       75,   // Timeout / rate limit / transient network — retry later (EX_TEMPFAIL)
   NOPERM:         77,   // Auth required / permission    (EX_NOPERM)
   CONFIG_ERROR:   78,   // Missing / invalid config      (EX_CONFIG)
   INTERRUPTED:   130,   // Ctrl-C / SIGINT
@@ -204,6 +204,63 @@ export class LoginWallError extends CliError {
     this.url = url;
     this.bodyPreview = bodyPreview;
   }
+}
+
+/**
+ * Thrown when an upstream service rate-limits the request (HTTP 429).
+ * Uses EX_TEMPFAIL (75) so callers/pipelines can distinguish temporary
+ * cooldown failures from generic command errors (exit 1) via exit code
+ * and inspect `error.code === 'RATE_LIMITED'` for cooldown scheduling.
+ */
+export class RateLimitError extends CliError {
+  readonly status: number;
+  readonly retryAfterSeconds?: number;
+  constructor(
+    message: string,
+    opts: { status?: number; retryAfterSeconds?: number; hint?: string } = {},
+  ) {
+    super(
+      'RATE_LIMITED',
+      message,
+      opts.hint ?? 'Rate-limited by upstream service. Wait for cooldown before retrying.',
+      EXIT_CODES.TEMPFAIL,
+    );
+    this.status = opts.status ?? 429;
+    this.retryAfterSeconds = opts.retryAfterSeconds;
+  }
+}
+
+/**
+ * Thrown when a browser/HTTP fetch fails due to a transient network hiccup
+ * (e.g. `TypeError: Failed to fetch`, connection reset, upstream 5xx).
+ * Uses EX_TEMPFAIL (75) so callers can safely retry with short backoff.
+ */
+export class TransientNetworkError extends CliError {
+  readonly url?: string;
+  constructor(
+    message: string,
+    opts: { url?: string; hint?: string } = {},
+  ) {
+    super(
+      'NETWORK_ERROR',
+      message,
+      opts.hint ?? 'Transient network failure (connection reset or fetch interrupted). Safe to retry with short backoff.',
+      EXIT_CODES.TEMPFAIL,
+    );
+    this.url = opts.url;
+  }
+}
+
+/**
+ * True when an error message matches a browser/Fetch transient network failure
+ * (e.g. `TypeError: Failed to fetch`). Explicitly excludes URL-parsing TypeErrors
+ * (`Failed to parse URL`, `Invalid URL`) so broken relative URLs are never
+ * misclassified as transient network errors.
+ */
+export function isTransientFetchMessage(message: string): boolean {
+  if (!message) return false;
+  if (/Failed to parse URL|Invalid URL/i.test(message)) return false;
+  return /\b(?:Failed to fetch|NetworkError|Load failed|fetch failed)\b/i.test(message);
 }
 
 // ── Error Envelope ──────────────────────────────────────────────────────────

@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractJsonAssignmentFromHtml, extractSubscriptionChannel, prepareYoutubeApiPage, readYoutubeSapisid } from './utils.js';
+import {
+    FETCH_BROWSE_FN,
+    ensureYoutubeApiPage,
+    extractJsonAssignmentFromHtml,
+    extractSubscriptionChannel,
+    prepareYoutubeApiPage,
+    readYoutubeSapisid,
+    throwYoutubeApiError,
+} from './utils.js';
 describe('youtube utils', () => {
     it('extractJsonAssignmentFromHtml parses bootstrap objects with nested braces in strings', () => {
         const html = `
@@ -33,6 +41,30 @@ describe('youtube utils', () => {
         await expect(prepareYoutubeApiPage(page)).resolves.toBeUndefined();
         expect(page.goto).toHaveBeenCalledWith('https://www.youtube.com', { waitUntil: 'none' });
         expect(page.wait).toHaveBeenCalledWith(2);
+    });
+    it('ensureYoutubeApiPage reuses a ready youtube tab without goto or wait', async () => {
+        const page = {
+            goto: vi.fn().mockResolvedValue(undefined),
+            wait: vi.fn().mockResolvedValue(undefined),
+            evaluate: vi.fn().mockResolvedValue({ session: 'site:youtube', data: true }),
+        };
+        await expect(ensureYoutubeApiPage(page)).resolves.toBeUndefined();
+        expect(page.goto).not.toHaveBeenCalled();
+        expect(page.wait).not.toHaveBeenCalled();
+    });
+    it('ensureYoutubeApiPage navigates and stops polling as soon as ytcfg becomes ready', async () => {
+        const page = {
+            goto: vi.fn().mockResolvedValue(undefined),
+            wait: vi.fn().mockResolvedValue(undefined),
+            evaluate: vi.fn()
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(true),
+        };
+        await expect(ensureYoutubeApiPage(page)).resolves.toBeUndefined();
+        expect(page.goto).toHaveBeenCalledWith('https://www.youtube.com');
+        expect(page.wait).toHaveBeenCalledTimes(1);
+        expect(page.wait).toHaveBeenCalledWith(0.2);
     });
     it('readYoutubeSapisid reads URL-scoped cookies and prefers secure SAPISID', async () => {
         const page = {
@@ -99,5 +131,54 @@ describe('parseYoutubeCount', () => {
         expect(parseYoutubeCount('')).toBeNull();
         expect(parseYoutubeCount('No videos')).toBeNull();
         expect(parseYoutubeCount(undefined)).toBeNull();
+    });
+});
+
+describe('FETCH_BROWSE_FN and throwYoutubeApiError', () => {
+    it('retries once on transient TypeError: Failed to fetch and succeeds when retry succeeds', async () => {
+        let calls = 0;
+        const fetchBrowse = new Function('fetch', `${FETCH_BROWSE_FN}; return fetchBrowse;`)(async () => {
+            calls += 1;
+            if (calls === 1) throw new TypeError('Failed to fetch');
+            return { ok: true, status: 200, json: async () => ({ contents: {} }) };
+        });
+        await expect(fetchBrowse('key', { browseId: 'UC1' }, { retryDelayMs: 0 })).resolves.toEqual({ contents: {} });
+        expect(calls).toBe(2);
+    });
+
+    it('returns __networkError after exhausting the single retry and maps to TransientNetworkError (exit 75)', async () => {
+        let calls = 0;
+        const fetchBrowse = new Function('fetch', `${FETCH_BROWSE_FN}; return fetchBrowse;`)(async () => {
+            calls += 1;
+            throw new TypeError('Failed to fetch');
+        });
+        const res = await fetchBrowse('key', { browseId: 'UC1' }, { retryDelayMs: 0 });
+        expect(calls).toBe(2);
+        expect(res).toMatchObject({ __networkError: true, status: 0 });
+        expect(() => throwYoutubeApiError(res)).toThrow(expect.objectContaining({
+            code: 'NETWORK_ERROR',
+            exitCode: 75,
+        }));
+    });
+
+    it('preserves HTTP status on error responses and maps 429 / 5xx to TEMPFAIL (exit 75)', async () => {
+        const fetchBrowse = new Function('fetch', `${FETCH_BROWSE_FN}; return fetchBrowse;`)(async () => ({
+            ok: false,
+            status: 429,
+        }));
+        const res429 = await fetchBrowse('key', { browseId: 'UC1' });
+        expect(res429).toEqual({ error: 'InnerTube browse API returned HTTP 429', status: 429 });
+        expect(() => throwYoutubeApiError(res429)).toThrow(expect.objectContaining({
+            code: 'RATE_LIMITED',
+            exitCode: 75,
+        }));
+        expect(() => throwYoutubeApiError({ error: 'HTTP 503', status: 503 })).toThrow(expect.objectContaining({
+            code: 'NETWORK_ERROR',
+            exitCode: 75,
+        }));
+        expect(() => throwYoutubeApiError({ error: 'HTTP 400', status: 400 })).toThrow(expect.objectContaining({
+            code: 'COMMAND_EXEC',
+            exitCode: 1,
+        }));
     });
 });
